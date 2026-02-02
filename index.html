@@ -5,6 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Code Animator</title>
   <style>
+    @font-face {
+      font-family: 'PP Right Serif Mono';
+      src: url('./fonts/PPRightSerifMono-Regular.woff2') format('woff2'),
+           url('./fonts/PPRightSerifMono-Regular.woff') format('woff');
+      font-weight: normal;
+      font-style: normal;
+    }
+
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
     :root {
@@ -176,6 +184,7 @@
       white-space: pre-wrap;
       word-break: break-all;
       line-height: 1.6;
+      font-family: inherit;
     }
 
     .code-display code {
@@ -467,6 +476,7 @@ console.log("Result:", result);</textarea>
       <label>Font Family</label>
       <select id="fontFamily">
         <option value="ui-monospace, 'SF Mono', Menlo, Monaco, monospace">SF Mono / Menlo</option>
+        <option value="'PP Right Serif Mono', monospace">PP Right Serif Mono</option>
         <option value="'Courier New', Courier, monospace">Courier New</option>
         <option value="'Fira Code', monospace">Fira Code</option>
         <option value="'JetBrains Mono', monospace">JetBrains Mono</option>
@@ -650,28 +660,97 @@ console.log("Result:", result);</textarea>
     const charCount = document.getElementById('charCount');
     const lineCount = document.getElementById('lineCount');
 
-    // Simple syntax highlighting
+    // Tokenizer-based syntax highlighting
     function highlightSyntax(code) {
-      const keywords = /\b(function|const|let|var|if|else|for|while|return|class|import|export|from|async|await|try|catch|new|this|typeof|instanceof)\b/g;
-      const strings = /(['"`])(?:(?!\1)[^\\]|\\.)*\1/g;
-      const numbers = /\b(\d+\.?\d*)\b/g;
-      const comments = /(\/\/.*$|\/\*[\s\S]*?\*\/)/gm;
-      const functions = /\b([a-zA-Z_]\w*)\s*\(/g;
-      const operators = /([+\-*/%=<>!&|^~?:]+)/g;
+      const tokens = [];
+      let i = 0;
 
-      let result = code
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
+      while (i < code.length) {
+        // Single-line comment
+        if (code[i] === '/' && code[i + 1] === '/') {
+          let end = i;
+          while (end < code.length && code[end] !== '\n') end++;
+          tokens.push({ type: 'comment', value: code.slice(i, end) });
+          i = end;
+          continue;
+        }
 
-      result = result
-        .replace(comments, '<span class="syntax-comment">$1</span>')
-        .replace(strings, '<span class="syntax-string">$&</span>')
-        .replace(keywords, '<span class="syntax-keyword">$1</span>')
-        .replace(numbers, '<span class="syntax-number">$1</span>')
-        .replace(functions, '<span class="syntax-function">$1</span>(');
+        // Multi-line comment
+        if (code[i] === '/' && code[i + 1] === '*') {
+          let end = i + 2;
+          while (end < code.length && !(code[end] === '*' && code[end + 1] === '/')) end++;
+          end += 2;
+          tokens.push({ type: 'comment', value: code.slice(i, end) });
+          i = end;
+          continue;
+        }
 
-      return result;
+        // String
+        if (code[i] === '"' || code[i] === "'" || code[i] === '`') {
+          const quote = code[i];
+          let end = i + 1;
+          while (end < code.length && code[end] !== quote) {
+            if (code[end] === '\\') end++;
+            end++;
+          }
+          end++;
+          tokens.push({ type: 'string', value: code.slice(i, end) });
+          i = end;
+          continue;
+        }
+
+        // Number
+        if (/[0-9]/.test(code[i]) || (code[i] === '.' && /[0-9]/.test(code[i + 1]))) {
+          let end = i;
+          while (end < code.length && /[0-9.xXa-fA-F]/.test(code[end])) end++;
+          tokens.push({ type: 'number', value: code.slice(i, end) });
+          i = end;
+          continue;
+        }
+
+        // Identifier or keyword
+        if (/[a-zA-Z_$]/.test(code[i])) {
+          let end = i;
+          while (end < code.length && /[a-zA-Z0-9_$]/.test(code[end])) end++;
+          const word = code.slice(i, end);
+          const keywords = ['function', 'const', 'let', 'var', 'if', 'else', 'for', 'while', 'return', 'class', 'import', 'export', 'from', 'async', 'await', 'try', 'catch', 'new', 'this', 'typeof', 'instanceof', 'true', 'false', 'null', 'undefined'];
+
+          // Check if it's a function call
+          let nextNonSpace = end;
+          while (nextNonSpace < code.length && code[nextNonSpace] === ' ') nextNonSpace++;
+
+          if (keywords.includes(word)) {
+            tokens.push({ type: 'keyword', value: word });
+          } else if (code[nextNonSpace] === '(') {
+            tokens.push({ type: 'function', value: word });
+          } else {
+            tokens.push({ type: 'identifier', value: word });
+          }
+          i = end;
+          continue;
+        }
+
+        // Default: single character
+        tokens.push({ type: 'plain', value: code[i] });
+        i++;
+      }
+
+      // Convert tokens to HTML
+      return tokens.map(token => {
+        const escaped = token.value
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+
+        switch (token.type) {
+          case 'comment': return `<span class="syntax-comment">${escaped}</span>`;
+          case 'string': return `<span class="syntax-string">${escaped}</span>`;
+          case 'number': return `<span class="syntax-number">${escaped}</span>`;
+          case 'keyword': return `<span class="syntax-keyword">${escaped}</span>`;
+          case 'function': return `<span class="syntax-function">${escaped}</span>`;
+          default: return escaped;
+        }
+      }).join('');
     }
 
     // Wrap characters for animation
@@ -981,6 +1060,7 @@ console.log("Result:", result);</textarea>
       codeToType = codeInput.value;
       currentIndex = 0;
       isPaused = false;
+      naturalNextDelay = null;
 
       const effect = typingEffect.value;
 
