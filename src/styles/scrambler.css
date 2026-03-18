@@ -1,0 +1,67 @@
+.scrambler-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  padding: 40px;
+  overflow: auto;
+  background: #ffffff;
+}
+
+.scrambler-display {
+  font-family: monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  text-align: center;
+  line-height: 1.4;
+}
+
+.scrambler-display .char {
+  display: inline-block;
+  transition: color 0.1s;
+}
+
+.scrambler-display .char.resolved {
+  opacity: 1;
+}
+
+.scrambler-display .char.scrambling {
+  opacity: 1;
+}
+
+.scrambler-display .char.bounce {
+  animation: scrambleBounce 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+@keyframes scrambleBounce {
+  0% { transform: translateY(0); }
+  40% { transform: translateY(-8px); }
+  70% { transform: translateY(3px); }
+  100% { transform: translateY(0); }
+}
+
+.scrambler-actions {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  z-index: 100;
+}
+
+.scrambler-actions .btn {
+  width: auto;
+  margin-top: 0;
+  padding: 12px 24px;
+}
+
+.scrambler-actions .record-status {
+  font-size: 12px;
+  color: #888;
+  min-height: 18px;
+}
+
+.scrambler-actions .record-status.recording {
+  color: #ff4444;
+}
