@@ -1,4 +1,6 @@
 import { populateFontSelect } from '../shared/fonts.js';
+import { ThemeManager } from './theme-manager.js';
+import { CodeAnimatorRecorder } from './code-animator-recorder.js';
 
 export function initCodeAnimator() {
   // State
@@ -13,7 +15,6 @@ export function initCodeAnimator() {
   const codeInput = document.getElementById('codeInput');
   const codeOutput = document.getElementById('codeOutput').querySelector('code');
   const codeDisplay = document.getElementById('codeDisplay');
-  const windowControls = document.getElementById('windowControls');
 
   // Controls
   const fontFamily = document.getElementById('fontFamily');
@@ -21,12 +22,12 @@ export function initCodeAnimator() {
   const theme = document.getElementById('theme');
   const cursorStyle = document.getElementById('cursorStyle');
   const typingEffect = document.getElementById('typingEffect');
-  const charAnimation = document.getElementById('charAnimation');
   const syntaxStyle = document.getElementById('syntaxStyle');
   const speed = document.getElementById('speed');
   const charsPerTick = document.getElementById('charsPerTick');
+  const displayHeight = document.getElementById('displayHeight');
+  const displayPadding = document.getElementById('displayPadding');
   const showLineNumbers = document.getElementById('showLineNumbers');
-  const showWindowControls = document.getElementById('showWindowControls');
   const cursorBlink = document.getElementById('cursorBlink');
 
   // Buttons
@@ -39,8 +40,153 @@ export function initCodeAnimator() {
   const charCount = document.getElementById('charCount');
   const lineCount = document.getElementById('lineCount');
 
+  // Custom theme elements
+  const customThemeEditor = document.getElementById('customThemeEditor');
+  const customThemeName = document.getElementById('customThemeName');
+  const colorBg = document.getElementById('colorBg');
+  const colorText = document.getElementById('colorText');
+  const colorKeyword = document.getElementById('colorKeyword');
+  const colorString = document.getElementById('colorString');
+  const colorNumber = document.getElementById('colorNumber');
+  const colorComment = document.getElementById('colorComment');
+  const colorFunction = document.getElementById('colorFunction');
+  const colorOperator = document.getElementById('colorOperator');
+  const saveThemeBtn = document.getElementById('saveThemeBtn');
+  const loadThemesBtn = document.getElementById('loadThemesBtn');
+  const themeFileInput = document.getElementById('themeFileInput');
+  const savedThemesSelect = document.getElementById('savedThemesSelect');
+  const deleteThemeBtn = document.getElementById('deleteThemeBtn');
+
+  // Theme manager
+  const themeManager = new ThemeManager();
+
   // Populate font selector
   populateFontSelect(fontFamily);
+
+  // Populate custom themes into dropdown
+  function populateCustomThemes() {
+    // Remove existing custom theme options (all after "custom")
+    const options = Array.from(theme.options);
+    options.forEach(opt => {
+      if (opt.dataset.custom) opt.remove();
+    });
+
+    // Add saved custom themes before the "+ Custom Theme" option
+    const customOption = theme.querySelector('option[value="custom"]');
+    themeManager.getThemeNames().forEach(name => {
+      const opt = document.createElement('option');
+      opt.value = `custom-${name}`;
+      opt.textContent = name;
+      opt.dataset.custom = 'true';
+      theme.insertBefore(opt, customOption);
+    });
+
+    // Update saved themes list in editor
+    savedThemesSelect.innerHTML = '';
+    themeManager.getThemeNames().forEach(name => {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      savedThemesSelect.appendChild(opt);
+    });
+  }
+
+  function getEditorColors() {
+    return {
+      background: colorBg.value,
+      text: colorText.value,
+      keyword: colorKeyword.value,
+      string: colorString.value,
+      number: colorNumber.value,
+      comment: colorComment.value,
+      function: colorFunction.value,
+      operator: colorOperator.value
+    };
+  }
+
+  function setEditorColors(colors) {
+    colorBg.value = colors.background;
+    colorText.value = colors.text;
+    colorKeyword.value = colors.keyword;
+    colorString.value = colors.string;
+    colorNumber.value = colors.number;
+    colorComment.value = colors.comment;
+    colorFunction.value = colors.function;
+    colorOperator.value = colors.operator || '#89ddff';
+  }
+
+  function applyLivePreview() {
+    const val = theme.value;
+    if (val === 'custom' || val.startsWith('custom-')) {
+      const colors = val === 'custom' ? getEditorColors() : themeManager.getTheme(val.replace('custom-', ''));
+      if (colors) {
+        themeManager.applyTheme(codeDisplay, colors);
+      }
+    }
+  }
+
+  // Wire up color pickers for live preview
+  [colorBg, colorText, colorKeyword, colorString, colorNumber, colorComment, colorFunction, colorOperator].forEach(input => {
+    input.addEventListener('input', applyLivePreview);
+  });
+
+  // Save theme
+  saveThemeBtn.addEventListener('click', () => {
+    const name = customThemeName.value.trim();
+    if (!name) {
+      customThemeName.focus();
+      return;
+    }
+    themeManager.saveTheme(name, getEditorColors());
+    populateCustomThemes();
+    // Switch dropdown to the newly saved theme
+    theme.value = `custom-${name}`;
+    updateStyles();
+  });
+
+  // Load themes button
+  loadThemesBtn.addEventListener('click', () => themeFileInput.click());
+
+  themeFileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      if (themeManager.importFromFile(ev.target.result)) {
+        populateCustomThemes();
+      }
+    };
+    reader.readAsText(file);
+    themeFileInput.value = '';
+  });
+
+  // Delete theme
+  deleteThemeBtn.addEventListener('click', () => {
+    const selected = savedThemesSelect.value;
+    if (!selected) return;
+    themeManager.deleteTheme(selected);
+    populateCustomThemes();
+    // If current theme was the deleted one, switch to midnight
+    if (theme.value === `custom-${selected}`) {
+      theme.value = 'midnight';
+      updateStyles();
+    }
+  });
+
+  // Load saved theme colors into editor when selecting from saved list
+  savedThemesSelect.addEventListener('dblclick', () => {
+    const selected = savedThemesSelect.value;
+    if (!selected) return;
+    const colors = themeManager.getTheme(selected);
+    if (colors) {
+      setEditorColors(colors);
+      customThemeName.value = selected;
+      applyLivePreview();
+    }
+  });
+
+  // Initialize custom themes on load
+  populateCustomThemes();
 
   // Tokenizer-based syntax highlighting
   function highlightSyntax(code) {
@@ -91,11 +237,46 @@ export function initCodeAnimator() {
       }
 
       // Identifier or keyword
-      if (/[a-zA-Z_$]/.test(code[i])) {
+      if (/[a-zA-Z_$#]/.test(code[i])) {
         let end = i;
+        // Allow # as first char for preprocessor directives
+        if (code[i] === '#') end++;
         while (end < code.length && /[a-zA-Z0-9_$]/.test(code[end])) end++;
         const word = code.slice(i, end);
-        const keywords = ['function', 'const', 'let', 'var', 'if', 'else', 'for', 'while', 'return', 'class', 'import', 'export', 'from', 'async', 'await', 'try', 'catch', 'new', 'this', 'typeof', 'instanceof', 'true', 'false', 'null', 'undefined'];
+        const keywords = [
+          // JS
+          'function', 'const', 'let', 'var', 'if', 'else', 'for', 'while', 'return',
+          'class', 'import', 'export', 'from', 'async', 'await', 'try', 'catch',
+          'new', 'this', 'typeof', 'instanceof', 'true', 'false', 'null', 'undefined',
+          'switch', 'case', 'default', 'break', 'continue', 'do', 'throw', 'finally',
+          'yield', 'of', 'in', 'delete', 'void',
+          // GLSL
+          'uniform', 'varying', 'attribute', 'precision', 'highp', 'mediump', 'lowp',
+          'struct', 'discard', 'flat', 'smooth', 'layout', 'centroid',
+          'invariant', 'inout', 'out',
+          // GLSL types
+          'float', 'int', 'uint', 'bool', 'double',
+          'vec2', 'vec3', 'vec4', 'ivec2', 'ivec3', 'ivec4',
+          'uvec2', 'uvec3', 'uvec4', 'bvec2', 'bvec3', 'bvec4',
+          'dvec2', 'dvec3', 'dvec4',
+          'mat2', 'mat3', 'mat4', 'mat2x2', 'mat2x3', 'mat2x4',
+          'mat3x2', 'mat3x3', 'mat3x4', 'mat4x2', 'mat4x3', 'mat4x4',
+          'sampler2D', 'sampler3D', 'samplerCube', 'sampler2DShadow',
+          // GLSL preprocessor
+          '#define', '#undef', '#if', '#ifdef', '#ifndef', '#else', '#elif',
+          '#endif', '#error', '#pragma', '#extension', '#version', '#line',
+          // C/C++ common
+          'auto', 'register', 'static', 'extern', 'inline',
+          'char', 'short', 'long', 'signed', 'unsigned', 'sizeof',
+          'enum', 'typedef', 'union', 'volatile', 'goto',
+          // Python
+          'def', 'lambda', 'and', 'or', 'not', 'is', 'None', 'True', 'False',
+          'with', 'as', 'pass', 'raise', 'except', 'global', 'nonlocal',
+          'elif', 'print', 'self', 'cls',
+          // Rust
+          'fn', 'pub', 'mod', 'use', 'impl', 'trait', 'where', 'mut', 'ref',
+          'match', 'loop', 'move', 'type', 'super', 'crate',
+        ];
 
         // Check if it's a function call
         let nextNonSpace = end;
@@ -112,7 +293,19 @@ export function initCodeAnimator() {
         continue;
       }
 
-      // Default: single character
+      // Operators and brackets/braces/parens
+      if (/[+\-*/%=<>!&|^~?:(){}[\]]/.test(code[i])) {
+        let end = i + 1;
+        // Consume multi-char operators like !=, ==, <=, >=, &&, ||, ++, --, +=, etc.
+        if (/[+\-*/%=<>!&|^~?:]/.test(code[i])) {
+          while (end < code.length && /[+\-*/%=<>!&|^~?:]/.test(code[end])) end++;
+        }
+        tokens.push({ type: 'operator', value: code.slice(i, end) });
+        i = end;
+        continue;
+      }
+
+      // Default: single character (whitespace, etc.)
       tokens.push({ type: 'plain', value: code[i] });
       i++;
     }
@@ -130,19 +323,10 @@ export function initCodeAnimator() {
         case 'number': return `<span class="syntax-number">${escaped}</span>`;
         case 'keyword': return `<span class="syntax-keyword">${escaped}</span>`;
         case 'function': return `<span class="syntax-function">${escaped}</span>`;
+        case 'operator': return `<span class="syntax-operator">${escaped}</span>`;
         default: return escaped;
       }
     }).join('');
-  }
-
-  // Wrap characters for animation
-  function wrapCharsForAnimation(text, animation) {
-    if (animation === 'none') return text;
-    return text.replace(/(<[^>]+>)|(.)/g, (match, tag, char) => {
-      if (tag) return tag;
-      if (char === '\n') return char;
-      return `<span class="char">${char}</span>`;
-    });
   }
 
   // Create cursor element
@@ -170,10 +354,6 @@ export function initCodeAnimator() {
       output = highlightSyntax(output);
     }
 
-    if (charAnimation.value !== 'none') {
-      output = wrapCharsForAnimation(output, charAnimation.value);
-    }
-
     output = formatWithLineNumbers(output);
 
     if (showCursor) {
@@ -181,6 +361,9 @@ export function initCodeAnimator() {
     }
 
     codeOutput.innerHTML = output;
+
+    // Auto-scroll to keep cursor visible
+    codeOutput.parentElement.scrollTop = codeOutput.parentElement.scrollHeight;
 
     // Update stats
     charCount.textContent = `${text.length} / ${codeToType.length} chars`;
@@ -473,28 +656,211 @@ export function initCodeAnimator() {
   function updateStyles() {
     codeDisplay.style.fontFamily = fontFamily.value;
     codeDisplay.style.fontSize = fontSize.value + 'px';
+    codeDisplay.style.height = displayHeight.value + 'px';
+    codeDisplay.style.padding = displayPadding.value + 'px';
+    const val = theme.value;
+    const isCustom = val === 'custom' || val.startsWith('custom-');
 
     // Remove old theme
     codeDisplay.className = 'code-display';
-    codeDisplay.classList.add(`theme-${theme.value}`);
+
+    if (isCustom) {
+      codeDisplay.classList.add('theme-custom');
+      // Show/hide editor
+      customThemeEditor.style.display = val === 'custom' ? '' : 'none';
+
+      if (val === 'custom') {
+        // Live editing mode — apply editor colors
+        themeManager.applyTheme(codeDisplay, getEditorColors());
+        setEditorColors(getEditorColors());
+      } else {
+        // Saved custom theme
+        const colors = themeManager.getTheme(val.replace('custom-', ''));
+        if (colors) {
+          themeManager.applyTheme(codeDisplay, colors);
+        }
+      }
+    } else {
+      codeDisplay.classList.add(`theme-${val}`);
+      customThemeEditor.style.display = 'none';
+      themeManager.clearThemeVars(codeDisplay);
+    }
 
     // Add syntax style class
     if (syntaxStyle.value !== 'none' && syntaxStyle.value !== 'static') {
       codeDisplay.classList.add(`syntax-${syntaxStyle.value}`);
     }
 
-    // Add char animation class
-    if (charAnimation.value !== 'none') {
-      codeDisplay.classList.add(`char-${charAnimation.value}`);
-    }
-
     // Line numbers
     codeOutput.parentElement.classList.toggle('line-numbers', showLineNumbers.checked);
-
-    // Window controls
-    windowControls.style.display = showWindowControls.checked ? 'flex' : 'none';
-    codeDisplay.style.paddingTop = showWindowControls.checked ? '50px' : '30px';
   }
+
+  // Scene save/load
+  const saveSceneBtn = document.getElementById('saveSceneBtn');
+  const loadSceneBtn = document.getElementById('loadSceneBtn');
+  const sceneFileInput = document.getElementById('sceneFileInput');
+  function saveScene() {
+    const sceneName = prompt('Scene name:');
+    if (!sceneName) return;
+    const scene = {
+      name: sceneName,
+      codeInput: codeInput.value,
+      fontFamily: fontFamily.value,
+      fontSize: fontSize.value,
+      theme: theme.value,
+      cursorStyle: cursorStyle.value,
+      typingEffect: typingEffect.value,
+      syntaxStyle: syntaxStyle.value,
+      speed: speed.value,
+      charsPerTick: charsPerTick.value,
+      displayHeight: displayHeight.value,
+      displayPadding: displayPadding.value,
+      showLineNumbers: showLineNumbers.checked,
+      cursorBlink: cursorBlink.checked
+    };
+
+    // If using custom theme editor, include the colors
+    const val = theme.value;
+    if (val === 'custom') {
+      scene.customColors = getEditorColors();
+      scene.customThemeName = customThemeName.value;
+    }
+
+    const filename = sceneName.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
+    const json = JSON.stringify(scene, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${filename}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function loadScene(json) {
+    try {
+      const scene = JSON.parse(json);
+
+      if (scene.codeInput !== undefined) codeInput.value = scene.codeInput;
+      if (scene.fontFamily !== undefined) fontFamily.value = scene.fontFamily;
+      if (scene.fontSize !== undefined) {
+        fontSize.value = scene.fontSize;
+        document.getElementById('fontSizeValue').textContent = scene.fontSize + 'px';
+      }
+      if (scene.theme !== undefined) theme.value = scene.theme;
+      if (scene.cursorStyle !== undefined) cursorStyle.value = scene.cursorStyle;
+      if (scene.typingEffect !== undefined) typingEffect.value = scene.typingEffect;
+      if (scene.syntaxStyle !== undefined) syntaxStyle.value = scene.syntaxStyle;
+      if (scene.speed !== undefined) {
+        speed.value = scene.speed;
+        document.getElementById('speedValue').textContent = scene.speed + 'ms';
+      }
+      if (scene.charsPerTick !== undefined) {
+        charsPerTick.value = scene.charsPerTick;
+        document.getElementById('charsPerTickValue').textContent = scene.charsPerTick;
+      }
+      if (scene.displayHeight !== undefined) {
+        displayHeight.value = scene.displayHeight;
+        document.getElementById('displayHeightValue').textContent = scene.displayHeight + 'px';
+      }
+      if (scene.displayPadding !== undefined) {
+        displayPadding.value = scene.displayPadding;
+        document.getElementById('displayPaddingValue').textContent = scene.displayPadding + 'px';
+      }
+      if (scene.showLineNumbers !== undefined) showLineNumbers.checked = scene.showLineNumbers;
+      if (scene.cursorBlink !== undefined) cursorBlink.checked = scene.cursorBlink;
+
+      // Restore custom theme editor state
+      if (scene.customColors) {
+        setEditorColors(scene.customColors);
+      }
+      if (scene.customThemeName !== undefined) {
+        customThemeName.value = scene.customThemeName;
+      }
+
+      updateStyles();
+      updateDisplay('', true);
+    } catch {
+      // invalid scene JSON
+    }
+  }
+
+  saveSceneBtn.addEventListener('click', saveScene);
+  loadSceneBtn.addEventListener('click', () => sceneFileInput.click());
+  sceneFileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => loadScene(ev.target.result);
+    reader.readAsText(file);
+    sceneFileInput.value = '';
+  });
+
+  // Step once — advances animation by one tick, returns { done, delay }
+  function stepOnce() {
+    const chars = getNextChars();
+
+    if (chars.length === 0 || currentIndex >= codeToType.length) {
+      updateDisplay(codeToType, false);
+      return { done: true, delay: 0 };
+    }
+
+    buildDisplayedText(chars);
+    currentIndex += chars.length;
+    updateDisplay(displayedText, true);
+
+    const delay = (typingEffect.value === 'natural' && naturalNextDelay !== null)
+      ? naturalNextDelay
+      : parseInt(speed.value);
+
+    return { done: false, delay };
+  }
+
+  // Record feature
+  const codeRecordBtn = document.getElementById('codeRecordBtn');
+  const codeRecordStatus = document.getElementById('codeRecordStatus');
+  const recorder = new CodeAnimatorRecorder();
+
+  codeRecordBtn.addEventListener('click', async () => {
+    codeRecordBtn.disabled = true;
+    codeRecordStatus.textContent = 'Preparing...';
+
+    // Reset animation state
+    stopAnimation();
+    codeToType = codeInput.value;
+    currentIndex = 0;
+    naturalNextDelay = null;
+    isPaused = false;
+
+    const effect = typingEffect.value;
+    if (effect === 'random') {
+      randomOrder = generateRandomOrder(codeToType.length);
+      displayedText = ' '.repeat(codeToType.length);
+    } else if (effect === 'middle-out' || effect === 'ends-in') {
+      displayedText = ' '.repeat(codeToType.length);
+    } else {
+      displayedText = '';
+    }
+
+    updateDisplay(displayedText, true);
+
+    try {
+      await recorder.record({
+        codeDisplay,
+        totalLength: codeToType.length,
+        stepAnimation: stepOnce,
+        onProgress: (p) => {
+          codeRecordStatus.textContent = `Recording... ${Math.round(p * 100)}%`;
+        }
+      });
+      codeRecordStatus.textContent = 'Done!';
+    } catch (err) {
+      codeRecordStatus.textContent = 'Recording failed: ' + err.message;
+    }
+
+    setTimeout(() => { codeRecordStatus.textContent = ''; }, 3000);
+    codeRecordBtn.disabled = false;
+  });
 
   // Event listeners
   startBtn.addEventListener('click', startAnimation);
@@ -507,6 +873,16 @@ export function initCodeAnimator() {
     updateStyles();
   });
 
+  displayHeight.addEventListener('input', () => {
+    document.getElementById('displayHeightValue').textContent = displayHeight.value + 'px';
+    updateStyles();
+  });
+
+  displayPadding.addEventListener('input', () => {
+    document.getElementById('displayPaddingValue').textContent = displayPadding.value + 'px';
+    updateStyles();
+  });
+
   speed.addEventListener('input', () => {
     document.getElementById('speedValue').textContent = speed.value + 'ms';
   });
@@ -515,7 +891,7 @@ export function initCodeAnimator() {
     document.getElementById('charsPerTickValue').textContent = charsPerTick.value;
   });
 
-  [fontFamily, theme, cursorStyle, syntaxStyle, charAnimation, showLineNumbers, showWindowControls, cursorBlink].forEach(el => {
+  [fontFamily, theme, cursorStyle, syntaxStyle, showLineNumbers, cursorBlink].forEach(el => {
     el.addEventListener('change', () => {
       updateStyles();
       if (displayedText) updateDisplay(displayedText, animationId !== null);

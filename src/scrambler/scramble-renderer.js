@@ -6,6 +6,7 @@ export class ScrambleRenderer {
     this.scrambleCharSize = null;
     this.resolvedFontSize = null;
     this.letterSpacing = 0;
+    this.resolvedLetterSpacing = 0;
   }
 
   init(length) {
@@ -36,11 +37,11 @@ export class ScrambleRenderer {
           span.classList.add('bounce');
         }
         span.style.fontSize = this.resolvedFontSize ? this.resolvedFontSize + 'px' : '';
-        span.style.letterSpacing = '';
+        span.style.letterSpacing = this.resolvedLetterSpacing + 'px';
       } else if (resolved[i]) {
         span.className = 'char resolved';
         span.style.fontSize = this.resolvedFontSize ? this.resolvedFontSize + 'px' : '';
-        span.style.letterSpacing = '';
+        span.style.letterSpacing = this.resolvedLetterSpacing + 'px';
       } else {
         span.className = 'char scrambling';
         span.style.fontSize = this.scrambleCharSize ? this.scrambleCharSize + 'px' : '';
@@ -57,12 +58,13 @@ export class ScrambleRenderer {
     this.prevResolved = [];
   }
 
-  setStyle({ fontFamily, fontSize, color, scrambleCharSize, letterSpacing }) {
+  setStyle({ fontFamily, fontSize, color, scrambleCharSize, resolvedLetterSpacing, letterSpacing }) {
     if (fontFamily) this.container.style.fontFamily = fontFamily;
     if (fontSize) this.container.style.fontSize = fontSize + 'px';
     if (color) this.container.style.color = color;
     this.resolvedFontSize = fontSize || null;
     this.scrambleCharSize = scrambleCharSize || fontSize || null;
+    this.resolvedLetterSpacing = resolvedLetterSpacing || 0;
     this.letterSpacing = letterSpacing || 0;
   }
 }

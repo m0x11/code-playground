@@ -1,10 +1,15 @@
 import './styles/base.css';
 import './styles/tabs.css';
 import './styles/code-animator.css';
+import './styles/latex-animator.css';
 import './styles/scrambler.css';
+import './styles/snowflake-scramble.css';
 
 import { initCodeAnimator } from './code-animator/code-animator.js';
+import { initLatexAnimator } from './latex-animator/latex-animator.js';
 import { initScrambler } from './scrambler/scrambler.js';
+import { initSnowflakeScramble } from './snowflake-scramble/snowflake-scramble.js';
+import { restoreAppState, initAppStatePersistence } from './persist.js';
 
 // Tab switching
 const tabBtns = document.querySelectorAll('.tab-btn');
@@ -22,6 +27,11 @@ tabBtns.forEach(btn => {
   });
 });
 
-// Initialize both tabs
+// Initialize tabs — control state is restored around init (raw values first
+// so initial renders read them, listener replay after; see persist.js).
+const savedState = restoreAppState();
 initCodeAnimator();
+initLatexAnimator();
 initScrambler();
+initSnowflakeScramble();
+initAppStatePersistence(savedState);

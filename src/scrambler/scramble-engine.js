@@ -1,11 +1,13 @@
 const DEFAULT_POOL = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%&*';
 
 export class ScrambleEngine {
-  constructor({ text, mode = 'wholeWord', pool = DEFAULT_POOL, duration = 30 }) {
+  constructor({ text, mode = 'wholeWord', pool = DEFAULT_POOL, duration = 30, resolveDelay = 0, reverse = false }) {
     this.targetText = text;
     this.mode = mode;
     this.pool = pool;
     this.duration = duration;
+    this.resolveDelay = resolveDelay;
+    this.reverse = reverse;
     this.tick = 0;
     this.length = text.length;
     this.resolved = new Array(this.length).fill(false);
@@ -15,18 +17,23 @@ export class ScrambleEngine {
     // Pre-compute resolve order based on mode
     this.resolveOrder = this._computeResolveOrder();
 
-    // For cascade mode: each char has its own mini-timeline
     if (mode === 'cascade') {
       this._initCascade();
     }
 
-    // For longRandomResolve: pre-assign each char a random tick to resolve
     if (mode === 'longRandomResolve') {
       this._initLongRandomResolve();
     }
 
-    // Initialize with scrambled characters
-    this._scrambleAll();
+    if (reverse) {
+      // Start fully resolved
+      for (let i = 0; i < this.length; i++) {
+        this.resolved[i] = true;
+        this.currentChars[i] = this.targetText[i];
+      }
+    } else {
+      this._scrambleAll();
+    }
   }
 
   _randomChar() {
@@ -48,7 +55,6 @@ export class ScrambleEngine {
     const len = this.length;
     const indices = [];
 
-    // Collect non-space indices
     for (let i = 0; i < len; i++) {
       if (this.targetText[i] !== ' ') {
         indices.push(i);
@@ -57,30 +63,21 @@ export class ScrambleEngine {
 
     switch (this.mode) {
       case 'wholeWord':
-        // All resolve at once at the end
         return [indices];
 
       case 'letterByLetter':
-        // One at a time, left to right
         return indices.map(i => [i]);
 
       case 'wave': {
-        // Sine-wave staggered pattern
-        const groups = [];
-        const numGroups = indices.length;
         const sorted = [...indices].sort((a, b) => {
           const phaseA = Math.sin((a / len) * Math.PI * 2);
           const phaseB = Math.sin((b / len) * Math.PI * 2);
           return phaseA - phaseB;
         });
-        for (const idx of sorted) {
-          groups.push([idx]);
-        }
-        return groups;
+        return sorted.map(idx => [idx]);
       }
 
       case 'randomResolve': {
-        // Random order ("popcorn")
         const shuffled = [...indices];
         for (let i = shuffled.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
@@ -90,7 +87,6 @@ export class ScrambleEngine {
       }
 
       case 'outsideIn': {
-        // Outermost chars first, converge to center
         const groups = [];
         let left = 0;
         let right = indices.length - 1;
@@ -105,7 +101,6 @@ export class ScrambleEngine {
       }
 
       case 'insideOut': {
-        // Center chars first, expand outward
         const groups = [];
         const mid = Math.floor(indices.length / 2);
         let offset = 0;
@@ -120,15 +115,12 @@ export class ScrambleEngine {
       }
 
       case 'bounce':
-        // Left to right (same as letterByLetter, but renderer adds bounce animation)
         return indices.map(i => [i]);
 
       case 'cascade':
-        // Each char resolves independently based on its own mini timeline
         return indices.map(i => [i]);
 
       case 'longRandomResolve':
-        // Resolves spread across entire duration — handled in step()
         return [];
 
       default:
@@ -137,7 +129,6 @@ export class ScrambleEngine {
   }
 
   _initCascade() {
-    // Each character gets its own scramble duration (staggered start)
     this.cascadeTimelines = [];
     for (let i = 0; i < this.length; i++) {
       if (this.targetText[i] === ' ') {
@@ -154,7 +145,6 @@ export class ScrambleEngine {
   }
 
   _initLongRandomResolve() {
-    // Assign each non-space char a random tick between 1 and duration to resolve
     const indices = [];
     for (let i = 0; i < this.length; i++) {
       if (this.targetText[i] !== ' ') indices.push(i);
@@ -164,37 +154,62 @@ export class ScrambleEngine {
       const j = Math.floor(Math.random() * (i + 1));
       [indices[i], indices[j]] = [indices[j], indices[i]];
     }
-    // Spread resolve ticks across the full duration
+
+    const delay = this.reverse ? 0 : this.resolveDelay;
+
+    // Spread resolve/unresolve ticks across duration, after delay
     this.longResolveMap = new Map();
     for (let i = 0; i < indices.length; i++) {
-      const tick = Math.floor((i / indices.length) * this.duration) + 1;
+      const tick = delay + Math.floor((i / indices.length) * this.duration) + 1;
       if (!this.longResolveMap.has(tick)) {
         this.longResolveMap.set(tick, []);
       }
       this.longResolveMap.get(tick).push(indices[i]);
     }
+
+    this.totalLongTicks = delay + this.duration;
   }
 
   _stepLongRandomResolve() {
-    // Scramble unresolved chars
-    for (let i = 0; i < this.length; i++) {
-      if (!this.resolved[i]) {
-        this.currentChars[i] = this._randomChar();
+    if (this.reverse) {
+      // Un-resolve chars assigned to this tick
+      const group = this.longResolveMap.get(this.tick);
+      if (group) {
+        for (const idx of group) {
+          this.resolved[idx] = false;
+        }
       }
-    }
 
-    // Resolve any chars assigned to this tick
-    const group = this.longResolveMap.get(this.tick);
-    if (group) {
-      for (const idx of group) {
-        this.resolved[idx] = true;
-        this.currentChars[idx] = this.targetText[idx];
+      // Scramble unresolved chars
+      for (let i = 0; i < this.length; i++) {
+        if (!this.resolved[i] && this.targetText[i] !== ' ') {
+          this.currentChars[i] = this._randomChar();
+        }
       }
-    }
 
-    // Done when past duration
-    if (this.tick >= this.duration) {
-      this._finalize();
+      if (this.tick >= this.totalLongTicks) {
+        this.done = true;
+      }
+    } else {
+      // Scramble unresolved chars
+      for (let i = 0; i < this.length; i++) {
+        if (!this.resolved[i]) {
+          this.currentChars[i] = this._randomChar();
+        }
+      }
+
+      // Resolve chars assigned to this tick
+      const group = this.longResolveMap.get(this.tick);
+      if (group) {
+        for (const idx of group) {
+          this.resolved[idx] = true;
+          this.currentChars[idx] = this.targetText[idx];
+        }
+      }
+
+      if (this.tick >= this.totalLongTicks) {
+        this._finalize();
+      }
     }
 
     return this.getState();
@@ -233,7 +248,6 @@ export class ScrambleEngine {
         }
       }
 
-      // Check if all done
       if (resolveIndex >= this.resolveOrder.length - 1) {
         this._finalize();
       }
@@ -250,15 +264,12 @@ export class ScrambleEngine {
 
       const tl = this.cascadeTimelines[i];
       if (this.tick < tl.start) {
-        // Not started yet — show target briefly then scramble
         this.currentChars[i] = this._randomChar();
         allDone = false;
       } else if (this.tick >= tl.end) {
-        // Resolved
         this.resolved[i] = true;
         this.currentChars[i] = this.targetText[i];
       } else {
-        // Scrambling
         this.currentChars[i] = this._randomChar();
         allDone = false;
       }
@@ -299,7 +310,14 @@ export class ScrambleEngine {
     if (this.mode === 'longRandomResolve') {
       this._initLongRandomResolve();
     }
-    this._scrambleAll();
+    if (this.reverse) {
+      for (let i = 0; i < this.length; i++) {
+        this.resolved[i] = true;
+        this.currentChars[i] = this.targetText[i];
+      }
+    } else {
+      this._scrambleAll();
+    }
     return this.getState();
   }
 }

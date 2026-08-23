@@ -1,0 +1,114 @@
+/* LaTeX Animator — reuses .code-display + .theme-* for the framed preview */
+
+.latex-display {
+  align-items: center;
+  justify-content: center;
+}
+
+/* Font modes drive what \text / \var inherit (mtextInheritFont). */
+.latex-display.font-editorial { font-family: 'PP Editorial New', Georgia, serif; }
+.latex-display.font-editorial-ultralight { font-family: 'PP Editorial New Ultralight', 'PP Editorial New', Georgia, serif; }
+
+/* Left/right alignment: equations hug one edge instead of centering.
+   MathJax centers display math internally, so its container needs the
+   override too (our selector out-specifies MathJax's own stylesheet). */
+.latex-display.align-left .latex-stage { align-items: flex-start; text-align: left; }
+.latex-display.align-left .latex-stage mjx-container[display="true"] { text-align: left; }
+.latex-display.align-right .latex-stage { align-items: flex-end; text-align: right; }
+.latex-display.align-right .latex-stage mjx-container[display="true"] { text-align: right; }
+.latex-display.font-serifmono { font-family: 'PP Right Serif Mono', ui-monospace, monospace; }
+.latex-display.font-default   { font-family: Georgia, 'Times New Roman', serif; }
+
+.latex-stage {
+  position: relative;
+  width: 100%;
+  max-height: 100%;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  /* "safe" keeps short content centered but top-aligns overflowing content.
+     Plain center puts the start of tall content (29-equation presets) in
+     unreachable negative overflow — scrollTop can't go above 0, so the
+     first equations are invisible and the screen looks blank. */
+  justify-content: center;
+  justify-content: safe center;
+  text-align: center;
+}
+
+/* Each display equation stacks and centers. Gap driven by the Line
+   Spacing slider via --lx-gap (em), applied only BETWEEN equations so a
+   negative gap overlaps neighbors without pushing the first equation out
+   of the frame. (Adjacent margins used to collapse, so the visual gap is
+   unchanged: one 0.55em margin, not two.) */
+.latex-stage mjx-container[display="true"] {
+  margin: 0;
+}
+.latex-stage mjx-container[display="true"] + mjx-container[display="true"] {
+  margin-top: var(--lx-gap, 0.55em);
+}
+
+/* Glyphs we haven't "typed" yet stay laid out but invisible (no reflow). */
+.latex-stage .lx-hidden { visibility: hidden; }
+
+/* Typing caret that follows the last revealed glyph. */
+.latex-caret {
+  position: absolute;
+  width: 0.07em;
+  background: currentColor;
+  pointer-events: none;
+  display: none;
+}
+.latex-caret.visible { display: block; }
+.latex-caret.blink { animation: lx-blink 1s step-end infinite; }
+
+@keyframes lx-blink {
+  0%, 50% { opacity: 1; }
+  50.01%, 100% { opacity: 0; }
+}
+
+/* ---- Float mode ("calculating math") ----
+   The flowed stage stays laid out (it's the clone source and keeps its
+   scroll/reveal state) but goes invisible; clones float in an absolute
+   layer over the display. */
+.latex-display.latex-float-on .latex-stage { visibility: hidden; }
+
+.latex-float-layer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.latex-float-item {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  will-change: transform, opacity;
+}
+.latex-float-item mjx-container { margin: 0 !important; }
+
+/* Clones must show everything regardless of the stage's reveal state. */
+.latex-float-layer .lx-hidden { visibility: visible !important; }
+
+/* Particle mode overlay canvas — same footprint as the float layer. */
+.latex-particle-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* Floating Play/Record — pinned to the viewport corner so the long control
+   sidebar never has to be scrolled to reach them. Lives inside the latex
+   tab's content, so it disappears with the tab. */
+.latex-fab {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 50;
+  display: flex;
+  gap: 8px;
+}
+.latex-fab .btn {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}

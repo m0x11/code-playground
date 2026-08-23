@@ -1,0 +1,82 @@
+.snowflake-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  padding: 40px;
+  overflow: auto;
+  background: #ffffff;
+}
+
+.snowflake-display {
+  font-family: 'PP Right Serif Mono', monospace;
+  text-align: left;
+  line-height: 1.5;
+  color: #111111;
+}
+
+.snowflake-display .sf-key {
+  font-family: inherit;
+  font-size: inherit;
+  white-space: pre;
+  margin: 0;
+}
+
+/* Values grid: fixed-width cells so columns line up across wrapped rows. */
+.snowflake-display .sf-values {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 1.2em;
+}
+.snowflake-display .sf-values:empty {
+  display: none;
+}
+.snowflake-display .sf-vrow {
+  display: flex;
+}
+.snowflake-display .sf-cell {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 1.2ch;
+}
+.snowflake-display .sf-cell:last-child {
+  margin-right: 0;
+}
+.snowflake-display .sf-sym {
+  display: inline-block;
+  width: 1.2em;
+  text-align: center;
+  margin-right: 0.4ch;
+}
+.snowflake-display .sf-sym.rot {
+  transform: rotate(-90deg);
+}
+.snowflake-display .sf-num {
+  white-space: pre;
+}
+
+.snowflake-actions {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  z-index: 100;
+}
+
+.snowflake-actions .btn {
+  width: auto;
+  margin-top: 0;
+  padding: 12px 24px;
+}
+
+.snowflake-actions .record-status {
+  font-size: 12px;
+  color: #888;
+  min-height: 18px;
+}
+
+.snowflake-actions .record-status.recording {
+  color: #ff4444;
+}

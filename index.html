@@ -4,12 +4,29 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Code Playground</title>
+  <link href="https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    window.MathJax = {
+      tex: {
+        inlineMath: [['\\(', '\\)']],
+        displayMath: [['$$', '$$']],
+        macros: { var: ['\\textit{#1}', 1], fn: ['\\text{#1}', 1] }
+      },
+      svg: { fontCache: 'none', mtextInheritFont: true },
+      output: { font: 'mathjax-termes' },
+      options: { enableMenu: false, sre: { speech: 'none' } },
+      startup: { typeset: false }
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@4/tex-svg.js" id="MathJax-script" async></script>
 </head>
 <body>
   <!-- Tab Bar -->
   <div class="tab-bar">
     <button class="tab-btn active" data-tab="code-animator">Code Animator</button>
+    <button class="tab-btn" data-tab="latex-animator">LaTeX Animator</button>
     <button class="tab-btn" data-tab="scrambler">Scrambler</button>
+    <button class="tab-btn" data-tab="snowflake-scramble">Snowflake Scramble</button>
   </div>
 
   <!-- Code Animator Tab -->
@@ -52,6 +69,22 @@ console.log("Result:", result);</textarea>
       </div>
 
       <div class="control-group">
+        <label>Display Height</label>
+        <div class="range-value">
+          <input type="range" id="displayHeight" min="200" max="800" value="400">
+          <span id="displayHeightValue">400px</span>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label>Inner Padding</label>
+        <div class="range-value">
+          <input type="range" id="displayPadding" min="0" max="80" value="30">
+          <span id="displayPaddingValue">30px</span>
+        </div>
+      </div>
+
+      <div class="control-group">
         <label>Theme</label>
         <select id="theme">
           <option value="midnight">Midnight</option>
@@ -64,7 +97,59 @@ console.log("Result:", result);</textarea>
           <option value="solarized">Solarized Dark</option>
           <option value="cyberpunk">Cyberpunk</option>
           <option value="sunset">Sunset</option>
+          <option value="gruvbox-dark">Gruvbox Material Dark</option>
+          <option value="gruvbox-light">Gruvbox Material Light</option>
+          <option value="custom">+ Custom Theme</option>
         </select>
+      </div>
+
+      <div class="control-group custom-theme-editor" id="customThemeEditor" style="display: none;">
+        <label>Custom Theme Editor</label>
+        <input type="text" id="customThemeName" placeholder="Theme name...">
+        <div class="color-picker-grid">
+          <div class="color-picker-row">
+            <label for="colorBg">Background</label>
+            <input type="color" id="colorBg" value="#1a1a2e">
+          </div>
+          <div class="color-picker-row">
+            <label for="colorText">Text</label>
+            <input type="color" id="colorText" value="#a5b4fc">
+          </div>
+          <div class="color-picker-row">
+            <label for="colorKeyword">Keyword</label>
+            <input type="color" id="colorKeyword" value="#c792ea">
+          </div>
+          <div class="color-picker-row">
+            <label for="colorString">String</label>
+            <input type="color" id="colorString" value="#c3e88d">
+          </div>
+          <div class="color-picker-row">
+            <label for="colorNumber">Number</label>
+            <input type="color" id="colorNumber" value="#f78c6c">
+          </div>
+          <div class="color-picker-row">
+            <label for="colorComment">Comment</label>
+            <input type="color" id="colorComment" value="#676e95">
+          </div>
+          <div class="color-picker-row">
+            <label for="colorFunction">Function</label>
+            <input type="color" id="colorFunction" value="#82aaff">
+          </div>
+          <div class="color-picker-row">
+            <label for="colorOperator">Operator</label>
+            <input type="color" id="colorOperator" value="#89ddff">
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn" id="saveThemeBtn">Save Theme</button>
+          <button class="btn secondary" id="loadThemesBtn">Load Themes</button>
+        </div>
+        <input type="file" id="themeFileInput" accept=".json" style="display: none;">
+        <div class="saved-themes-list" id="savedThemesList">
+          <label>Saved Custom Themes</label>
+          <select id="savedThemesSelect" size="3"></select>
+          <button class="btn secondary" id="deleteThemeBtn">Delete Selected</button>
+        </div>
       </div>
 
       <div class="control-group">
@@ -93,18 +178,6 @@ console.log("Result:", result);</textarea>
           <option value="middle-out">Middle Out</option>
           <option value="ends-in">Ends to Middle</option>
           <option value="typewriter">Typewriter (with mistakes)</option>
-        </select>
-      </div>
-
-      <div class="control-group">
-        <label>Character Animation</label>
-        <select id="charAnimation">
-          <option value="none">None</option>
-          <option value="wave">Wave</option>
-          <option value="fade">Fade In</option>
-          <option value="scale">Scale In</option>
-          <option value="slide">Slide In</option>
-          <option value="glitch">Glitch</option>
         </select>
       </div>
 
@@ -139,7 +212,6 @@ console.log("Result:", result);</textarea>
         <label>Options</label>
         <div class="checkbox-group">
           <label><input type="checkbox" id="showLineNumbers"> Line Numbers</label>
-          <label><input type="checkbox" id="showWindowControls" checked> Window Dots</label>
           <label><input type="checkbox" id="cursorBlink" checked> Cursor Blink</label>
         </div>
       </div>
@@ -153,6 +225,17 @@ console.log("Result:", result);</textarea>
         <button class="btn secondary" id="pauseBtn">Pause</button>
         <button class="btn secondary" id="instantBtn">Instant</button>
       </div>
+
+      <div class="btn-row" style="margin-top: 12px;">
+        <button class="btn secondary" id="saveSceneBtn">Save Scene</button>
+        <button class="btn secondary" id="loadSceneBtn">Load Scene</button>
+      </div>
+      <input type="file" id="sceneFileInput" accept=".json" style="display: none;">
+
+      <div class="btn-row">
+        <button class="btn secondary" id="codeRecordBtn">Record</button>
+      </div>
+      <div class="record-status" id="codeRecordStatus"></div>
     </div>
 
     <div class="preview-container">
@@ -165,12 +248,326 @@ console.log("Result:", result);</textarea>
       </div>
       <div class="preview">
         <div class="code-display theme-midnight" id="codeDisplay">
-          <div class="window-controls" id="windowControls">
-            <div class="window-dot red"></div>
-            <div class="window-dot yellow"></div>
-            <div class="window-dot green"></div>
-          </div>
           <pre id="codeOutput"><code></code></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- LaTeX Animator Tab -->
+  <div class="tab-content" id="tab-latex-animator">
+    <div class="controls">
+      <h1>LaTeX Animator</h1>
+
+      <div class="control-group">
+        <label>Preset</label>
+        <select id="latexPreset">
+          <option value="custom" selected>Custom</option>
+          <option value="combination">SDF — Combination Operators</option>
+          <option value="primitives">SDF — Primitives</option>
+          <option value="xtorus">SDF — xTorus (square cross-section)</option>
+          <option value="snowflake">SDF — Snowflake (flurry, full)</option>
+          <option value="snowflakeGuide">SDF — Snowflake (annotated walkthrough)</option>
+          <option value="ephemerisRing">SDF — Ephemeris Ring (full math)</option>
+          <option value="ephemerisRingMath">SDF — Ephemeris Ring (equations only)</option>
+          <option value="ephemerisRingShort">SDF — Ephemeris Ring (short lines)</option>
+          <option value="sdf">SDF — Full Set</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <label>LaTeX Input</label>
+        <textarea id="latexInput">$$ \fn{smin}(\var{a},\var{b},\var{k})=\big(\var{a}\,\var{h}+\var{b}(1-\var{h})\big)-\var{k}\,\var{h}(1-\var{h}) $$
+
+$$ \var{r}(\theta)=\frac{\var{a}\,(1-\var{e}^{2})}{1+\var{e}\cos\theta} $$
+
+$$ \var{M}=\var{E}-\var{e}\sin \var{E} $$
+
+$$ \var{v}(\var{r})=\sqrt{\mu\!\left(\frac{2}{\var{r}}-\frac{1}{\var{a}}\right)} $$</textarea>
+      </div>
+
+      <div class="control-group">
+        <label>Variable Font</label>
+        <select id="latexFont">
+          <option value="editorial">PP Editorial New</option>
+          <option value="editorial-ultralight">PP Editorial New Ultralight</option>
+          <option value="serifmono">PP Right Serif Mono</option>
+          <option value="default">Default LaTeX (unchanged)</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <label>Alignment</label>
+        <select id="latexAlign">
+          <option value="center" selected>Center</option>
+          <option value="left">Left</option>
+          <option value="right">Right</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <label>Font Size</label>
+        <div class="range-value">
+          <input type="range" id="latexFontSize" min="8" max="80" value="34">
+          <span id="latexFontSizeValue">34px</span>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label>Display Height</label>
+        <div class="range-value">
+          <input type="range" id="latexDisplayHeight" min="200" max="800" value="460">
+          <span id="latexDisplayHeightValue">460px</span>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label>Inner Padding</label>
+        <div class="range-value">
+          <input type="range" id="latexDisplayPadding" min="0" max="120" value="48">
+          <span id="latexDisplayPaddingValue">48px</span>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label title="Vertical gap between equations, in em (relative to font size). Applies to the preview and all captures/recordings.">Line Spacing</label>
+        <div class="range-value">
+          <input type="range" id="latexLineHeight" min="-100" max="200" value="55">
+          <span id="latexLineHeightValue">0.55em</span>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label>Theme</label>
+        <select id="latexTheme">
+          <option value="paper" selected>Paper (Light)</option>
+          <option value="white">White (pure)</option>
+          <option value="midnight">Midnight</option>
+          <option value="dracula">Dracula</option>
+          <option value="monokai">Monokai</option>
+          <option value="nord">Nord</option>
+          <option value="synthwave">Synthwave</option>
+          <option value="matrix">Matrix</option>
+          <option value="solarized">Solarized Dark</option>
+          <option value="cyberpunk">Cyberpunk</option>
+          <option value="sunset">Sunset</option>
+          <option value="gruvbox-dark">Gruvbox Material Dark</option>
+          <option value="gruvbox-light">Gruvbox Material Light</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <label>Typing Mode</label>
+        <select id="latexTypingEffect">
+          <option value="normal">Left → Right</option>
+          <option value="natural">Natural (varied pace)</option>
+          <option value="token">Word / Token</option>
+          <option value="line">Equation by Equation</option>
+          <option value="random">Random</option>
+          <option value="reverse">Reverse (Right → Left)</option>
+          <option value="middle-out">Middle Out</option>
+          <option value="float">Float — Calculating Math</option>
+          <option value="particles">Particles — Morphing Glyphs</option>
+        </select>
+      </div>
+
+      <div id="latexParticleControls" style="display: none;">
+        <div class="control-group">
+          <label>Particle Count</label>
+          <div class="range-value">
+            <input type="range" id="latexPartCount" min="500" max="60000" step="100" value="3000">
+            <span id="latexPartCountValue">3000</span>
+          </div>
+        </div>
+        <div class="control-group">
+          <label>Particle Size</label>
+          <div class="range-value">
+            <input type="range" id="latexPartSize" min="5" max="60" value="15">
+            <span id="latexPartSizeValue">1.5px</span>
+          </div>
+        </div>
+        <div class="control-group">
+          <label>Glow / Softness</label>
+          <div class="range-value">
+            <input type="range" id="latexPartGlow" min="0" max="100" value="40">
+            <span id="latexPartGlowValue">40%</span>
+          </div>
+        </div>
+        <div class="control-group">
+          <label>Particle Blend</label>
+          <select id="latexPartBlend">
+            <option value="source-over">Normal</option>
+            <option value="lighter">Additive (dark themes)</option>
+            <option value="multiply">Multiply (light themes)</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label>Morph Time</label>
+          <div class="range-value">
+            <input type="range" id="latexPartMorph" min="200" max="3000" step="50" value="900">
+            <span id="latexPartMorphValue">900ms</span>
+          </div>
+        </div>
+        <div class="control-group">
+          <label>Hold Time</label>
+          <div class="range-value">
+            <input type="range" id="latexPartHold" min="200" max="4000" step="50" value="1200">
+            <span id="latexPartHoldValue">1200ms</span>
+          </div>
+        </div>
+        <div class="control-group">
+          <label>Cymatics — Morph (nodal streams)</label>
+          <div class="range-value">
+            <input type="range" id="latexPartScatter" min="0" max="100" value="30">
+            <span id="latexPartScatterValue">30</span>
+          </div>
+        </div>
+        <div class="control-group">
+          <label>Cymatics — Idle (plate hum)</label>
+          <div class="range-value">
+            <input type="range" id="latexPartIdle" min="0" max="100" value="25">
+            <span id="latexPartIdleValue">25</span>
+          </div>
+        </div>
+        <div class="control-group">
+          <label>Cymatics — Scale (wavelength)</label>
+          <div class="range-value">
+            <input type="range" id="latexPartCymScale" min="40" max="400" value="150">
+            <span id="latexPartCymScaleValue">150px</span>
+          </div>
+        </div>
+        <div class="control-group">
+          <label>Options</label>
+          <div class="checkbox-group">
+            <label><input type="checkbox" id="latexPartRelic" checked> Relic forms between lines</label>
+          </div>
+        </div>
+      </div>
+
+      <div id="latexFloatControls" style="display: none;">
+        <div class="control-group">
+          <label>Float Layout</label>
+          <select id="latexFloatLayout">
+            <option value="random">Random</option>
+            <option value="cascade">Cascade (centered, top → bottom)</option>
+            <option value="symmetry">Symmetry (grid, ×4)</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label>Float Density (equations)</label>
+          <div class="range-value">
+            <input type="range" id="latexFloatCount" min="3" max="24" value="10">
+            <span id="latexFloatCountValue">10</span>
+          </div>
+        </div>
+        <div class="control-group">
+          <label>Float Lifetime</label>
+          <div class="range-value">
+            <input type="range" id="latexFloatLife" min="5" max="80" value="40">
+            <span id="latexFloatLifeValue">4.0s</span>
+          </div>
+        </div>
+        <div class="control-group">
+          <label>Max Zoom</label>
+          <div class="range-value">
+            <input type="range" id="latexFloatZoom" min="10" max="60" value="35">
+            <span id="latexFloatZoomValue">×3.5</span>
+          </div>
+        </div>
+        <div class="control-group">
+          <label>Fade Out At</label>
+          <div class="range-value">
+            <input type="range" id="latexFloatFade" min="30" max="90" value="60">
+            <span id="latexFloatFadeValue">60%</span>
+          </div>
+        </div>
+        <div class="control-group">
+          <label>Glyph Reveal (fade-in)</label>
+          <select id="latexFloatReveal">
+            <option value="off">Off — whole equation fades in</option>
+            <option value="ltr">Cascade left → right</option>
+            <option value="rtl">Cascade right → left</option>
+            <option value="center">Cascade center out</option>
+            <option value="random">Cascade random</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label>Speed (ms per tick)</label>
+        <div class="range-value">
+          <input type="range" id="latexSpeed" min="10" max="500" value="45">
+          <span id="latexSpeedValue">45ms</span>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label>Glyphs per Tick</label>
+        <div class="range-value">
+          <input type="range" id="latexCharsPerTick" min="1" max="10" value="1">
+          <span id="latexCharsPerTickValue">1</span>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label>Options</label>
+        <div class="checkbox-group">
+          <label><input type="checkbox" id="latexCursor" checked> Cursor</label>
+          <label><input type="checkbox" id="latexCursorBlink" checked> Cursor Blink</label>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label>Render Size</label>
+        <select id="latexRenderSize">
+          <option value="3840x2160">3840 × 2160 (16:9 · 4K)</option>
+          <option value="2160x2700">2160 × 2700 (4:5 · 4K)</option>
+        </select>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn" id="latexStartBtn">Play</button>
+        <button class="btn secondary" id="latexResetBtn">Reset</button>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn secondary" id="latexPauseBtn">Pause</button>
+        <button class="btn secondary" id="latexInstantBtn">Instant</button>
+      </div>
+
+      <div class="btn-row" style="margin-top: 12px;">
+        <button class="btn secondary" id="latexSaveSceneBtn">Save Scene</button>
+        <button class="btn secondary" id="latexLoadSceneBtn">Load Scene</button>
+      </div>
+      <input type="file" id="latexSceneFileInput" accept=".json" style="display: none;">
+
+      <div class="btn-row">
+        <button class="btn secondary" id="latexRecordBtn">Record</button>
+        <button class="btn secondary" id="latexScreenshotBtn">Screenshot</button>
+      </div>
+      <div class="btn-row">
+        <button class="btn secondary" id="latexCaptureBtn" title="Save ALL typeset content as one PNG, 3840px wide — height grows with the content, so long presets give very tall images. Everything is revealed in the capture; the on-screen reveal state is untouched.">Capture 4K</button>
+        <button class="btn secondary" id="latexPagesBtn" title="Save ALL typeset content as a numbered series of PNG pages, each at most 4096px on either side, cut at gaps between equations. Use for tools like Figma that silently downscale any imported image past 4096px — each page imports at full resolution. Your browser may ask to allow multiple downloads.">Capture Pages</button>
+      </div>
+      <div class="record-status" id="latexRecordStatus"></div>
+
+      <!-- Floating quick actions: always visible, no scrolling to the top -->
+      <div class="latex-fab">
+        <button class="btn" id="latexFabPlay" title="Play (same as the Play button above)">▶ Play</button>
+        <button class="btn secondary" id="latexFabRecord" title="Record (same as the Record button above)">● Record</button>
+      </div>
+    </div>
+
+    <div class="preview-container">
+      <div class="preview-header">
+        <h2>Preview</h2>
+        <div class="stats">
+          <span id="latexUnitCount">0 / 0 glyphs</span>
+        </div>
+      </div>
+      <div class="preview">
+        <div class="code-display latex-display theme-paper" id="latexDisplay">
+          <div class="latex-stage" id="latexStage"></div>
         </div>
       </div>
     </div>
@@ -181,9 +578,15 @@ console.log("Result:", result);</textarea>
     <div class="controls">
       <h1>Scrambler</h1>
 
-      <div class="control-group">
+      <div class="control-group" id="singleTextGroup">
         <label>Target Text</label>
         <input type="text" id="scrambleText" value="Hello World" placeholder="Enter text to scramble...">
+      </div>
+
+      <div class="control-group" id="slideshowTextGroup" style="display:none">
+        <label>Slideshow Texts (one per line)</label>
+        <textarea id="scrambleSlideshowTexts" rows="5" placeholder="Hello World&#10;Goodbye World&#10;Another Line">Hello World
+Goodbye World</textarea>
       </div>
 
       <div class="control-group">
@@ -202,23 +605,33 @@ console.log("Result:", result);</textarea>
       <div class="control-group">
         <label>Scramble Char Size</label>
         <div class="range-value">
-          <input type="range" id="scrambleCharSize" min="12" max="200" value="58">
-          <span id="scrambleCharSizeValue">58px</span>
+          <input type="range" id="scrambleCharSize" min="12" max="200" value="72">
+          <span id="scrambleCharSizeValue">72px</span>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label>Resolved Letter Spacing</label>
+        <div class="range-value">
+          <input type="range" id="scrambleResolvedLetterSpacing" min="-20" max="50" value="30">
+          <span id="scrambleResolvedLetterSpacingValue">30px</span>
         </div>
       </div>
 
       <div class="control-group">
         <label>Scramble Letter Spacing</label>
         <div class="range-value">
-          <input type="range" id="scrambleLetterSpacing" min="-11" max="50" value="-2">
-          <span id="scrambleLetterSpacingValue">-2px</span>
+          <input type="range" id="scrambleLetterSpacing" min="-20" max="50" value="18">
+          <span id="scrambleLetterSpacingValue">18px</span>
         </div>
       </div>
 
       <div class="control-group">
         <label>Pool Preset</label>
         <select id="scramblePoolPreset">
-          <option value="dot">Dot Mode</option>
+          <option value="dot">Dot Mode (Braille)</option>
+          <option value="minimalDot">Minimal Dot</option>
+          <option value="minimalLine">Minimal Line</option>
           <option value="ascii">ASCII Mode</option>
           <option value="custom">Custom</option>
         </select>
@@ -241,22 +654,39 @@ console.log("Result:", result);</textarea>
           <option value="bounce">Bounce</option>
           <option value="cascade" selected>Cascade</option>
           <option value="longRandomResolve">Long Random Resolve</option>
+          <option value="slideshow">Slideshow</option>
         </select>
       </div>
 
       <div class="control-group">
         <label>Speed (ms per frame)</label>
         <div class="range-value">
-          <input type="range" id="scrambleSpeed" min="16" max="200" value="50">
-          <span id="scrambleSpeedValue">50ms</span>
+          <input type="range" id="scrambleSpeed" min="16" max="200" value="55">
+          <span id="scrambleSpeedValue">55ms</span>
         </div>
       </div>
 
       <div class="control-group">
         <label>Duration (iterations before resolve)</label>
         <div class="range-value">
-          <input type="range" id="scrambleDuration" min="5" max="100" value="30">
-          <span id="scrambleDurationValue">30</span>
+          <input type="range" id="scrambleDuration" min="5" max="100" value="22">
+          <span id="scrambleDurationValue">22</span>
+        </div>
+      </div>
+
+      <div class="control-group" id="resolveDelayGroup">
+        <label>Resolve Delay (ticks)</label>
+        <div class="range-value">
+          <input type="range" id="scrambleResolveDelay" min="0" max="60" value="1">
+          <span id="scrambleResolveDelayValue">1</span>
+        </div>
+      </div>
+
+      <div class="control-group" id="holdTimeGroup" style="display:none">
+        <label>Hold Time (ms)</label>
+        <div class="range-value">
+          <input type="range" id="scrambleHoldTime" min="200" max="5000" value="200" step="100">
+          <span id="scrambleHoldTimeValue">200ms</span>
         </div>
       </div>
 
@@ -281,6 +711,106 @@ console.log("Result:", result);</textarea>
       <button class="btn secondary" id="scrambleResetBtn">Reset</button>
       <button class="btn secondary" id="scrambleRecordBtn">Record</button>
       <button class="btn" id="scramblePlayBtn">Play</button>
+    </div>
+  </div>
+
+  <!-- Snowflake Scramble Tab -->
+  <div class="tab-content" id="tab-snowflake-scramble">
+    <div class="controls">
+      <h1>Snowflake Scramble</h1>
+
+      <div class="control-group">
+        <label>Target Values (optional — 11 numbers, settles here)</label>
+        <input type="text" id="sfTargetValues" placeholder="e.g. 7,1.3,0.36,0,0,3,7,0.4,0.39,1.55,1.4">
+      </div>
+
+      <div class="control-group">
+        <label>Text Size</label>
+        <div class="range-value">
+          <input type="range" id="sfFontSize" min="8" max="48" value="30">
+          <span id="sfFontSizeValue">30px</span>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label>Speed (ms per scramble)</label>
+        <div class="range-value">
+          <input type="range" id="sfSpeed" min="16" max="300" value="70">
+          <span id="sfSpeedValue">70ms</span>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label>Duration (scrambles before settling)</label>
+        <div class="range-value">
+          <input type="range" id="sfDuration" min="5" max="150" value="72">
+          <span id="sfDurationValue">72</span>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label>Box X Density</label>
+        <div class="range-value">
+          <input type="range" id="sfDensity" min="0" max="100" value="60">
+          <span id="sfDensityValue">60%</span>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label>Values Row Width (values per row)</label>
+        <div class="range-value">
+          <input type="range" id="sfValuesWidth" min="80" max="1600" value="80" step="10">
+          <span id="sfValuesWidthValue">80px</span>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label>Options</label>
+        <div class="checkbox-group">
+          <label><input type="checkbox" id="sfLoop"> Loop forever</label>
+          <label><input type="checkbox" id="sfShowValues" checked> Show values</label>
+          <label><input type="checkbox" id="sfShowBoxes" checked> Show boxes</label>
+          <label><input type="checkbox" id="sfComment"> // prefix</label>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label>Value Symbol Prefix</label>
+        <div class="checkbox-group" style="margin-bottom: 8px;">
+          <label><input type="checkbox" id="sfSymbolEnable" checked> Enable symbol</label>
+          <label><input type="checkbox" id="sfSymbolRotate" checked> Rotate 90° CCW</label>
+        </div>
+        <input type="text" id="sfSymbol" value="\dagger" placeholder="\dagger, \star, or any glyph">
+      </div>
+
+      <div class="control-group">
+        <label>Text Color</label>
+        <input type="color" id="sfColor" value="#111111">
+      </div>
+
+      <div class="control-group">
+        <label>Background</label>
+        <input type="color" id="sfBg" value="#ffffff">
+      </div>
+    </div>
+
+    <div class="preview-container">
+      <div class="preview-header">
+        <h2>Preview</h2>
+      </div>
+      <div class="snowflake-preview" id="snowflakePreview">
+        <div class="snowflake-display" id="snowflakeDisplay">
+          <div class="sf-values" id="snowflakeValues"></div>
+          <pre class="sf-key" id="snowflakeKey"></pre>
+        </div>
+      </div>
+    </div>
+
+    <div class="snowflake-actions">
+      <div class="record-status" id="sfRecordStatus"></div>
+      <button class="btn secondary" id="sfResetBtn">Reset</button>
+      <button class="btn secondary" id="sfRecordBtn">Record</button>
+      <button class="btn" id="sfPlayBtn">Play</button>
     </div>
   </div>
 
