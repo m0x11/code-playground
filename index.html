@@ -271,6 +271,7 @@ console.log("Result:", result);</textarea>
           <option value="ephemerisRing">SDF — Ephemeris Ring (full math)</option>
           <option value="ephemerisRingMath">SDF — Ephemeris Ring (equations only)</option>
           <option value="ephemerisRingShort">SDF — Ephemeris Ring (short lines)</option>
+          <option value="ephemerisRingVeryShort">SDF — Ephemeris Ring (very short)</option>
           <option value="sdf">SDF — Full Set</option>
         </select>
       </div>
@@ -437,10 +438,42 @@ $$ \var{v}(\var{r})=\sqrt{\mu\!\left(\frac{2}{\var{r}}-\frac{1}{\var{a}}\right)}
           </div>
         </div>
         <div class="control-group">
-          <label>Options</label>
-          <div class="checkbox-group">
-            <label><input type="checkbox" id="latexPartRelic" checked> Relic forms between lines</label>
+          <label>Cymatics — Size (pattern spread)</label>
+          <div class="range-value">
+            <input type="range" id="latexPartCymSize" min="20" max="500" value="120">
+            <span id="latexPartCymSizeValue">120px</span>
           </div>
+        </div>
+        <div class="control-group">
+          <label>Noise Pattern</label>
+          <select id="latexPartNoise">
+            <option value="polar">Polar Chladni (spokes &amp; rings)</option>
+            <option value="plate">Square-Plate Chladni</option>
+            <option value="rings">Concentric Rings</option>
+            <option value="kaleido">Kaleidoscope Noise (folded)</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label>Lines per Transition</label>
+          <div class="range-value">
+            <input type="range" id="latexPartLines" min="1" max="6" value="1">
+            <span id="latexPartLinesValue">1</span>
+          </div>
+        </div>
+        <div class="control-group">
+          <label>Placement</label>
+          <select id="latexPartPlace">
+            <option value="center">Centered</option>
+            <option value="random">Random (fly around)</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label>Relic Forms</label>
+          <select id="latexPartRelicMode">
+            <option value="stop">Form &amp; hold (interlude)</option>
+            <option value="guide">Guide the morph (one sweep)</option>
+            <option value="off">Off</option>
+          </select>
         </div>
       </div>
 
@@ -472,6 +505,13 @@ $$ \var{v}(\var{r})=\sqrt{\mu\!\left(\frac{2}{\var{r}}-\frac{1}{\var{a}}\right)}
           <div class="range-value">
             <input type="range" id="latexFloatZoom" min="10" max="60" value="35">
             <span id="latexFloatZoomValue">×3.5</span>
+          </div>
+        </div>
+        <div class="control-group">
+          <label>Fade In Duration (% of life)</label>
+          <div class="range-value">
+            <input type="range" id="latexFloatFadeIn" min="5" max="60" value="18">
+            <span id="latexFloatFadeInValue">18%</span>
           </div>
         </div>
         <div class="control-group">

@@ -10,10 +10,14 @@ export class LatexAnimatorRecorder {
   // absent inside foreignObject, so the margin must be restated here.
   _helperCssFor(stage) {
     const gap = getComputedStyle(stage).getPropertyValue('--lx-gap').trim() || '0.55em';
+    // The svg overflow rule restates MathJax's own stylesheet (absent inside
+    // foreignObject): glyph ink genuinely extends past the declared viewBox
+    // (hats above, subscript descenders below) and clips without it.
     return `
 .lx-hidden{visibility:hidden;}
 mjx-container{display:block;margin:0;}
 mjx-container + mjx-container{margin-top:${gap};}
+mjx-container svg{overflow:visible;}
 .latex-caret{display:none;position:absolute;width:.07em;}
 .latex-caret.visible{display:block;background:currentColor;}
 `;
@@ -163,14 +167,16 @@ mjx-container + mjx-container{margin-top:${gap};}
       contentW = Math.max(contentW, svg.getBoundingClientRect().width);
     });
     if (!contentW) throw new Error('Nothing to capture — no typeset content');
-    const layoutW = Math.ceil(contentW) + 2;
+    const layoutW = Math.ceil(contentW) + 10; // slack for ink past the metric box
 
     // Alignment (center/left) follows the live stage's computed style.
     // Restate --lx-gap: overwriting cssText wipes the inline custom prop,
     // and the off-screen measurement below resolves margins through it.
     const gap = ss.getPropertyValue('--lx-gap').trim() || '0.55em';
     const clone = stage.cloneNode(true);
-    clone.style.cssText = `width:${layoutW}px;--lx-gap:${gap};`
+    // 0.3em vertical padding gives the first line's hats and the last line's
+    // descenders room — their ink overflows the equations' declared boxes.
+    clone.style.cssText = `width:${layoutW}px;--lx-gap:${gap};padding:0.3em 0;`
       + `color:${ss.color};font-family:${ss.fontFamily};font-size:${ss.fontSize};`
       + `position:relative;margin:0;display:flex;flex-direction:column;`
       + `justify-content:flex-start;align-items:${ss.alignItems};text-align:${ss.textAlign};overflow:visible;`;
@@ -527,21 +533,26 @@ mjx-container + mjx-container{margin-top:${gap};}
       if (!w || !h) continue;
       // Build the wrapper in the DOM so the serializer escapes quotes in
       // computed styles (font-family values contain double quotes, which
-      // would break a hand-assembled style="..." attribute).
+      // would break a hand-assembled style="..." attribute). The raster is
+      // padded by ~0.3em on every side and the svg overflow rule restated:
+      // glyph ink (hats, subscript descenders) extends past the equations'
+      // declared boxes and would otherwise clip.
+      const inkPad = Math.ceil(parseFloat(ss.fontSize) * 0.3) || 10;
+      const wp = w + 2 * inkPad, hp = h + 2 * inkPad;
       const holder = document.createElement('div');
-      holder.style.cssText = `width:${w}px;color:${ss.color};font-family:${ss.fontFamily};font-size:${ss.fontSize};`;
+      holder.style.cssText = `width:${w}px;margin:${inkPad}px;color:${ss.color};font-family:${ss.fontFamily};font-size:${ss.fontSize};`;
       holder.appendChild(eq.cloneNode(true));
       const xml = new XMLSerializer().serializeToString(holder);
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w * RASTER}" height="${h * RASTER}" viewBox="0 0 ${w} ${h}">`
-        + `<foreignObject x="0" y="0" width="${w}" height="${h}">`
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${wp * RASTER}" height="${hp * RASTER}" viewBox="0 0 ${wp} ${hp}">`
+        + `<foreignObject x="0" y="0" width="${wp}" height="${hp}">`
         + `<div xmlns="http://www.w3.org/1999/xhtml">`
-        + `<style>${this._fontCss}mjx-container{display:block;margin:0;}.lx-hidden{visibility:visible !important;}</style>${xml}</div>`
+        + `<style>${this._fontCss}mjx-container{display:block;margin:0;}mjx-container svg{overflow:visible;}.lx-hidden{visibility:visible !important;}</style>${xml}</div>`
         + `</foreignObject></svg>`;
       const img = new Image();
       img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
       try {
         await img.decode();
-        sprites.push({ img, w, h });
+        sprites.push({ img, w: wp, h: hp });
       } catch { /* one bad equation shouldn't sink the take */ }
     }
     if (!sprites.length) throw new Error('No equations to float');
@@ -555,7 +566,8 @@ mjx-container + mjx-container{margin-top:${gap};}
     // Glyph-cascade approximation: sprites are flat rasters, so the reveal
     // is done with vertical strips shown in the chosen order — ≈ per-glyph
     // granularity for a math line.
-    const FI = 0.18, STRIPS = 24;
+    const FI = params.fadeIn || 0.18; // fade-in / reveal window, fraction of life
+    const STRIPS = 24;
     const stripOrder = (mode) => {
       const idx = Array.from({ length: STRIPS }, (_, i) => i);
       if (mode === 'rtl') idx.reverse();

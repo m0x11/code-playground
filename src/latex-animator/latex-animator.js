@@ -476,7 +476,32 @@ $$ \textit{real periods, real mean longitudes — the angle on the date is true}
 // length is a rough but monotonic proxy for rendered width). Rule
 // separators are kept, but deduped and trimmed so emptied sections don't
 // leave doubled rules.
-function ephemerisMathBlocks({ maxLen = Infinity, splitClauses = false } = {}) {
+// Rough count of a line's visible symbols: \var/\fn tokens, Greek letters,
+// function names, numbers, and punctuation count 1 each; spacing, sizing,
+// accents, and pure structure (braces, scripts, \frac) count 0.
+const SYM_IGNORE = new Set([
+  'qquad', 'quad', 'left', 'right', 'frac', 'tfrac', 'dfrac', 'hat', 'dot',
+  'ddot', 'bar', 'vec', 'mathbf', 'text', 'textit', 'textbf', 'big', 'Big',
+  'bigl', 'bigr', 'Bigl', 'Bigr', 'bigg', 'Bigg', 'biggl', 'biggr',
+  'displaystyle', 'operatorname',
+]);
+function symbolCount(block) {
+  const src = block.replace(/\$\$/g, '');
+  let n = 0;
+  const re = /\\(?:var|fn)\{[^}]*\}|\\[a-zA-Z]+|\\.|\d+(?:\.\d+)?|[a-zA-Z]|[^\s{}^_&]/g;
+  for (const tok of src.match(re) || []) {
+    if (tok[0] === '\\') {
+      if (/^\\(?:var|fn)\{/.test(tok)) { n++; continue; }
+      const name = tok.slice(1);
+      if (/^[a-zA-Z]+$/.test(name) && !SYM_IGNORE.has(name)) n++;
+      continue; // \, \; \! etc — spacing, count 0
+    }
+    n++;
+  }
+  return n;
+}
+
+function ephemerisMathBlocks({ maxLen = Infinity, splitClauses = false, maxSymbols = Infinity } = {}) {
   const isRule = (b) => b.includes('\\rule{');
   let blocks = EPHEMERIS_RING.split('\n\n')
     .filter(b => !b.includes('\\textbf{') && !b.includes('\\textit{'));
@@ -487,6 +512,11 @@ function ephemerisMathBlocks({ maxLen = Infinity, splitClauses = false } = {}) {
         .split(/,\s*\\q?quad\s*/)
         .map(part => `$$ ${part.trim()} $$`);
     });
+    // Lines cut from the short set outright.
+    const DROP = [
+      String.raw`+\var{b}\,\var{T}^{2}`, // M = L − ϖ + bT² + c cos(fT) + s sin(fT)
+    ];
+    blocks = blocks.filter(b => !DROP.some(key => b.includes(key)));
     // Lines whose commas are NOT clause separators (tuples, the obliquity
     // colon pair) — replaced with hand-written per-component lines so every
     // float item is a single statement.
@@ -509,7 +539,8 @@ function ephemerisMathBlocks({ maxLen = Infinity, splitClauses = false } = {}) {
       return rw ? rw[1].map(l => `$$ ${l} $$`) : [b];
     });
   }
-  blocks = blocks.filter(b => isRule(b) || b.replace(/\s+/g, '').length <= maxLen);
+  blocks = blocks.filter(b => isRule(b)
+    || (b.replace(/\s+/g, '').length <= maxLen && symbolCount(b) <= maxSymbols));
   const out = [];
   for (const b of blocks) {
     if (isRule(b) && (!out.length || isRule(out[out.length - 1]))) continue;
@@ -525,6 +556,8 @@ const JD_LEN = EPHEMERIS_RING.split('\n\n')
   .filter(b => b.includes('\\fn{JD}='))
   .map(b => b.replace(/\s+/g, '').length)[0] || 122;
 const EPHEMERIS_RING_SHORT = ephemerisMathBlocks({ maxLen: JD_LEN - 1, splitClauses: true });
+// Very short set: additionally capped at 8 visible symbols per line.
+const EPHEMERIS_RING_VERY_SHORT = ephemerisMathBlocks({ maxLen: JD_LEN - 1, splitClauses: true, maxSymbols: 8 });
 
 const LATEX_PRESETS = {
   combination: COMBINATION_OPERATORS,
@@ -535,6 +568,7 @@ const LATEX_PRESETS = {
   ephemerisRing: EPHEMERIS_RING,
   ephemerisRingMath: EPHEMERIS_RING_MATH,
   ephemerisRingShort: EPHEMERIS_RING_SHORT,
+  ephemerisRingVeryShort: EPHEMERIS_RING_VERY_SHORT,
   sdf: [COMBINATION_OPERATORS, PRIMITIVES, XTORUS].join('\n\n'),
 };
 
@@ -587,7 +621,11 @@ export function initLatexAnimator() {
   const partScatter = document.getElementById('latexPartScatter');
   const partIdle = document.getElementById('latexPartIdle');
   const partCymScale = document.getElementById('latexPartCymScale');
-  const partRelic = document.getElementById('latexPartRelic');
+  const partCymSize = document.getElementById('latexPartCymSize');
+  const partNoise = document.getElementById('latexPartNoise');
+  const partLines = document.getElementById('latexPartLines');
+  const partPlace = document.getElementById('latexPartPlace');
+  const partRelicMode = document.getElementById('latexPartRelicMode');
 
   const renderSize = document.getElementById('latexRenderSize');
   const floatControls = document.getElementById('latexFloatControls');
@@ -595,6 +633,7 @@ export function initLatexAnimator() {
   const floatLife = document.getElementById('latexFloatLife');
   const floatZoom = document.getElementById('latexFloatZoom');
   const floatFade = document.getElementById('latexFloatFade');
+  const floatFadeIn = document.getElementById('latexFloatFadeIn');
   const floatLayout = document.getElementById('latexFloatLayout');
   const floatReveal = document.getElementById('latexFloatReveal');
 
@@ -801,7 +840,8 @@ export function initLatexAnimator() {
       count: parseInt(floatCount.value),
       life: parseInt(floatLife.value) * 100,   // slider 15–80 → 1.5–8s
       zoom: parseInt(floatZoom.value) / 10,    // slider 15–60 → ×1.5–6
-      fadeAt: parseInt(floatFade.value) / 100, // life fraction where fade-out starts
+      fadeAt: parseInt(floatFade.value) / 100,   // life fraction where fade-out starts
+      fadeIn: parseInt(floatFadeIn.value) / 100, // life fraction spent fading/cascading in
       layout: floatLayout.value,
       reveal: floatReveal.value, // glyph-cascade fade-in direction, or 'off'
       gap: parseInt(lineHeight.value) / 100, // Line Spacing, in em
@@ -809,7 +849,7 @@ export function initLatexAnimator() {
     };
   }
 
-  const FLOAT_FADE_IN = 0.18; // life fraction spent fading/cascading in
+  const FLOAT_FADE_IN = 0.18; // fallback fade-in fraction (Fade In slider overrides)
 
   // Glyph order for the cascade reveal. Document order is reading order in
   // MathJax's SVG output, so it doubles as left → right.
@@ -864,7 +904,7 @@ export function initLatexAnimator() {
     const vb = svg.viewBox.baseVal;
     if (!svgRect.width || !svgRect.height || !vb.height) return [container];
     const u = vb.height / svgRect.height; // css px → svg user units
-    const PAD = 2;                        // css px, so glyph edges don't clip
+    const PAD = 3;                        // css px, so glyph edges don't clip
     return rows.map(row => {
       const r = row.getBoundingClientRect();
       const w = r.width + 2 * PAD;
@@ -875,6 +915,11 @@ export function initLatexAnimator() {
         `${vb.x + (r.left - svgRect.left - PAD) * u} ${vb.y + (r.top - svgRect.top - PAD) * u} ${w * u} ${h * u}`);
       cs.setAttribute('width', w + 'px');
       cs.setAttribute('height', h + 'px');
+      // MathJax's stylesheet makes these svgs overflow:visible, which would
+      // defeat this row crop and leak the block's other lines into the
+      // clone — the crop needs a real clip. (The row's own rect is measured
+      // from actual ink, so nothing of THIS line is lost.)
+      cs.style.overflow = 'hidden';
       clone.dataset.lxW = w.toFixed(2);
       clone.dataset.lxH = h.toFixed(2);
       return clone;
@@ -971,7 +1016,7 @@ export function initLatexAnimator() {
         // With the glyph cascade on, the cascade IS the entrance — the item
         // itself starts opaque and only the fade-out curve applies.
         if (u.glyphSets) {
-          const frac = Math.min(1, t / FLOAT_FADE_IN);
+          const frac = Math.min(1, t / (p.fadeIn || FLOAT_FADE_IN));
           u.glyphSets.forEach((gs, gi) => {
             const target = Math.floor(gs.length * frac);
             while (u.revealed[gi] < target) gs[u.revealed[gi]++].style.opacity = '1';
@@ -980,7 +1025,7 @@ export function initLatexAnimator() {
         const fadeOut = t <= p.fadeAt ? 1 : 1 - (t - p.fadeAt) / (1 - p.fadeAt);
         const alpha = Math.max(0, u.glyphSets
           ? Math.min(1, fadeOut)
-          : Math.min(Math.min(1, t / FLOAT_FADE_IN), fadeOut));
+          : Math.min(Math.min(1, t / (p.fadeIn || FLOAT_FADE_IN)), fadeOut));
         const op = alpha.toFixed(3);
         const tf = `translate(-50%,-50%) scale(${s.toFixed(4)})`;
         const z = Math.round(s * 100); // closer = on top
@@ -1062,6 +1107,11 @@ export function initLatexAnimator() {
       scatter: parseInt(partScatter.value),    // cymatic drive during morphs
       idle: parseInt(partIdle.value),          // cymatic drive while holding
       cymScale: parseInt(partCymScale.value),  // nodal wavelength, px
+      cymSize: parseInt(partCymSize.value),    // pattern spread radius, px
+      noise: partNoise.value,                  // symmetric field family
+      linesPer: parseInt(partLines.value),     // lines shown per transition
+      place: partPlace.value,                  // 'center' | 'random'
+      relicMode: partRelicMode.value,          // 'off' | 'stop' | 'guide'
     };
   }
 
@@ -1074,8 +1124,16 @@ export function initLatexAnimator() {
     };
   }
 
+  function particleArea() {
+    return {
+      w: display.clientWidth,
+      h: display.clientHeight,
+      lineGap: (parseInt(lineHeight.value) / 100) * parseInt(fontSize.value),
+    };
+  }
+
   async function buildRelicForms(maxPoints, onProgress) {
-    if (!partRelic.checked) return [];
+    if (partRelicMode.value === 'off') return [];
     const radiusPx = relicFormRow().radiusPx;
     const POOL = 8;
     const forms = [];
@@ -1107,7 +1165,7 @@ export function initLatexAnimator() {
           fontFamily: ss.fontFamily, fontSize: ss.fontSize,
           width: w, height: h, fontCss: recorder._fontCss, maxPoints,
         });
-        if (line) { line.w = w; lines.push(line); }
+        if (line) { line.w = w; line.h = h; lines.push(line); }
       } catch { /* one bad line shouldn't sink the run */ }
       if (onProgress) onProgress(i + 1, eqs.length);
     }
@@ -1142,6 +1200,7 @@ export function initLatexAnimator() {
       color: getComputedStyle(display).color,
       forms,
       formRow: relicFormRow(),
+      area: particleArea(),
     });
     particleState = { canvas, ctx, engine, raf: 0, last: performance.now(), paused: false };
     applyStyles(); // hides the stage behind the canvas
@@ -1277,6 +1336,7 @@ export function initLatexAnimator() {
       latexFloatLife: floatLife.value,
       latexFloatZoom: floatZoom.value,
       latexFloatFade: floatFade.value,
+      latexFloatFadeIn: floatFadeIn.value,
       latexFloatLayout: floatLayout.value,
       latexFloatReveal: floatReveal.value,
       latexPartCount: partCount.value,
@@ -1288,7 +1348,11 @@ export function initLatexAnimator() {
       latexPartScatter: partScatter.value,
       latexPartIdle: partIdle.value,
       latexPartCymScale: partCymScale.value,
-      latexPartRelic: partRelic.checked,
+      latexPartCymSize: partCymSize.value,
+      latexPartNoise: partNoise.value,
+      latexPartLines: partLines.value,
+      latexPartPlace: partPlace.value,
+      latexPartRelicMode: partRelicMode.value,
       latexRenderSize: renderSize.value
     };
     const blob = new Blob([JSON.stringify(scene, null, 2)], { type: 'application/json' });
@@ -1320,6 +1384,7 @@ export function initLatexAnimator() {
       if (s.latexFloatLife !== undefined) { floatLife.value = s.latexFloatLife; document.getElementById('latexFloatLifeValue').textContent = (parseInt(s.latexFloatLife) / 10).toFixed(1) + 's'; }
       if (s.latexFloatZoom !== undefined) { floatZoom.value = s.latexFloatZoom; document.getElementById('latexFloatZoomValue').textContent = '×' + (parseInt(s.latexFloatZoom) / 10).toFixed(1); }
       if (s.latexFloatFade !== undefined) { floatFade.value = s.latexFloatFade; document.getElementById('latexFloatFadeValue').textContent = s.latexFloatFade + '%'; }
+      if (s.latexFloatFadeIn !== undefined) { floatFadeIn.value = s.latexFloatFadeIn; document.getElementById('latexFloatFadeInValue').textContent = s.latexFloatFadeIn + '%'; }
       if (s.latexFloatLayout !== undefined) floatLayout.value = s.latexFloatLayout;
       if (s.latexFloatReveal !== undefined) floatReveal.value = s.latexFloatReveal;
       if (s.latexPartCount !== undefined) { partCount.value = s.latexPartCount; document.getElementById('latexPartCountValue').textContent = s.latexPartCount; }
@@ -1331,7 +1396,12 @@ export function initLatexAnimator() {
       if (s.latexPartScatter !== undefined) { partScatter.value = s.latexPartScatter; document.getElementById('latexPartScatterValue').textContent = s.latexPartScatter; }
       if (s.latexPartIdle !== undefined) { partIdle.value = s.latexPartIdle; document.getElementById('latexPartIdleValue').textContent = s.latexPartIdle; }
       if (s.latexPartCymScale !== undefined) { partCymScale.value = s.latexPartCymScale; document.getElementById('latexPartCymScaleValue').textContent = s.latexPartCymScale + 'px'; }
-      if (s.latexPartRelic !== undefined) partRelic.checked = s.latexPartRelic;
+      if (s.latexPartCymSize !== undefined) { partCymSize.value = s.latexPartCymSize; document.getElementById('latexPartCymSizeValue').textContent = s.latexPartCymSize + 'px'; }
+      if (s.latexPartNoise !== undefined) partNoise.value = s.latexPartNoise;
+      if (s.latexPartLines !== undefined) { partLines.value = s.latexPartLines; document.getElementById('latexPartLinesValue').textContent = s.latexPartLines; }
+      if (s.latexPartPlace !== undefined) partPlace.value = s.latexPartPlace;
+      if (s.latexPartRelic !== undefined) partRelicMode.value = s.latexPartRelic ? 'stop' : 'off'; // legacy scenes
+      if (s.latexPartRelicMode !== undefined) partRelicMode.value = s.latexPartRelicMode;
       if (s.latexRenderSize !== undefined) renderSize.value = s.latexRenderSize;
       syncFloatControls();
       render();
@@ -1388,6 +1458,7 @@ export function initLatexAnimator() {
           color: getComputedStyle(display).color,
           forms,
           formRow: relicFormRow(),
+          area: particleArea(),
         });
         const dispRect = display.getBoundingClientRect();
         await recorder.recordParticles({
@@ -1592,10 +1663,27 @@ export function initLatexAnimator() {
     document.getElementById('latexPartCymScaleValue').textContent = partCymScale.value + 'px';
     if (particleState) {
       particleState.engine.setParams(particleParams());
-      particleState.engine._newCymaticMode(); // re-ring the plate at the new scale
+      particleState.engine._newFieldMode(); // re-ring the plate at the new scale
     }
   });
-  partRelic.addEventListener('change', () => {
+  partCymSize.addEventListener('input', () => {
+    document.getElementById('latexPartCymSizeValue').textContent = partCymSize.value + 'px';
+    if (particleState) particleState.engine.setParams(particleParams()); // read live per frame
+  });
+  partNoise.addEventListener('change', () => {
+    if (particleState) {
+      particleState.engine.setParams(particleParams());
+      particleState.engine._newFieldMode(); // switch pattern families immediately
+    }
+  });
+  partLines.addEventListener('input', () => {
+    document.getElementById('latexPartLinesValue').textContent = partLines.value;
+    if (particleState) particleState.engine.setParams(particleParams()); // next group uses it
+  });
+  partPlace.addEventListener('change', () => {
+    if (particleState) particleState.engine.setParams(particleParams()); // next group uses it
+  });
+  partRelicMode.addEventListener('change', () => {
     if (particleState) startParticles(); // form pool must be (re)carved
   });
 
@@ -1625,6 +1713,10 @@ export function initLatexAnimator() {
     document.getElementById('latexFloatFadeValue').textContent = floatFade.value + '%';
     if (floatState) floatState.p = floatParams();
   });
+  floatFadeIn.addEventListener('input', () => {
+    document.getElementById('latexFloatFadeInValue').textContent = floatFadeIn.value + '%';
+    if (floatState) floatState.p = floatParams();
+  });
   themeSel.addEventListener('change', applyStyles);
   alignSel.addEventListener('change', applyStyles);
   renderSize.addEventListener('change', applyStyles);
@@ -1643,5 +1735,14 @@ export function initLatexAnimator() {
     }
     return false;
   }
-  waitForMathJax().then(ok => { if (ok) { mathReady = true; render(); } });
+  waitForMathJax().then(ok => {
+    if (!ok) return;
+    // Derived presets evolve with the code, but persistence restores the
+    // stored input text verbatim — refresh it from the preset so a stale
+    // snapshot never shadows the current preset content. (User-edited text
+    // is safe: any edit flips the preset select to "custom".)
+    if (LATEX_PRESETS[preset.value]) input.value = LATEX_PRESETS[preset.value];
+    mathReady = true;
+    render();
+  });
 }
