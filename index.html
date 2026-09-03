@@ -25,6 +25,7 @@
   <div class="tab-bar">
     <button class="tab-btn active" data-tab="code-animator">Code Animator</button>
     <button class="tab-btn" data-tab="latex-animator">LaTeX Animator</button>
+    <button class="tab-btn" data-tab="image-morph">Image Morph</button>
     <button class="tab-btn" data-tab="scrambler">Scrambler</button>
     <button class="tab-btn" data-tab="snowflake-scramble">Snowflake Scramble</button>
   </div>
@@ -369,7 +370,91 @@ $$ \var{v}(\var{r})=\sqrt{\mu\!\left(\frac{2}{\var{r}}-\frac{1}{\var{a}}\right)}
           <option value="middle-out">Middle Out</option>
           <option value="float">Float — Calculating Math</option>
           <option value="particles">Particles — Morphing Glyphs</option>
+          <option value="zoom">Zoom — Fly-Through</option>
+          <option value="cell">Cells — Living Symbols</option>
         </select>
+      </div>
+
+      <div id="latexZoomControls" style="display: none;">
+        <div class="control-group">
+          <label>Density (equations in flight)</label>
+          <div class="range-value">
+            <input type="range" id="latexZoomCount" min="4" max="100" value="10">
+            <span id="latexZoomCountValue">10</span>
+          </div>
+        </div>
+        <div class="control-group">
+          <label>Travel Time (background → past camera)</label>
+          <div class="range-value">
+            <input type="range" id="latexZoomTravel" min="0.5" max="20" step="0.1" value="9">
+            <span id="latexZoomTravelValue">9s</span>
+          </div>
+        </div>
+        <div class="control-group">
+          <label>Tilt Spin (scene rotation speed)</label>
+          <div class="range-value">
+            <input type="range" id="latexZoomTilt" min="0" max="40" value="16">
+            <span id="latexZoomTiltValue">16°</span>
+          </div>
+        </div>
+        <div class="control-group">
+          <label>Perspective (narrow ↔ wide)</label>
+          <div class="range-value">
+            <input type="range" id="latexZoomPersp" min="0" max="100" step="any" value="50">
+            <span id="latexZoomPerspValue">50</span>
+          </div>
+        </div>
+        <div class="control-group">
+          <label>Depth (how far away they start)</label>
+          <div class="range-value">
+            <input type="range" id="latexZoomDepth" min="0" max="100" step="any" value="60">
+            <span id="latexZoomDepthValue">60</span>
+          </div>
+        </div>
+        <div class="control-group">
+          <label>Depth Blur</label>
+          <div class="range-value">
+            <input type="range" id="latexZoomBlur" min="0" max="100" value="60">
+            <span id="latexZoomBlurValue">60</span>
+          </div>
+        </div>
+        <div class="control-group">
+          <label>Options</label>
+          <div class="checkbox-group">
+            <label><input type="checkbox" id="latexZoomDiagrams" checked> Labeled diagrams (experiment)</label>
+          </div>
+        </div>
+      </div>
+
+      <div id="latexCellControls" style="display: none;">
+        <div class="control-group">
+          <label>Cells (flying symbols)</label>
+          <div class="range-value">
+            <input type="range" id="latexCellCount" min="20" max="140" value="70">
+            <span id="latexCellCountValue">70</span>
+          </div>
+        </div>
+        <div class="control-group">
+          <label>Tempo (route crossing)</label>
+          <div class="range-value">
+            <input type="range" id="latexCellFlow" min="3" max="15" value="7">
+            <span id="latexCellFlowValue">7s</span>
+          </div>
+        </div>
+        <div class="control-group">
+          <label>Tilt (into depth)</label>
+          <div class="range-value">
+            <input type="range" id="latexCellTilt" min="0" max="60" value="30">
+            <span id="latexCellTiltValue">30°</span>
+          </div>
+        </div>
+        <div class="control-group">
+          <label>Depth &amp; Motion Blur</label>
+          <div class="range-value">
+            <input type="range" id="latexCellBlur" min="0" max="100" value="60">
+            <span id="latexCellBlurValue">60</span>
+          </div>
+        </div>
       </div>
 
       <div id="latexParticleControls" style="display: none;">
@@ -483,6 +568,7 @@ $$ \var{v}(\var{r})=\sqrt{\mu\!\left(\frac{2}{\var{r}}-\frac{1}{\var{a}}\right)}
           <select id="latexFloatLayout">
             <option value="random">Random</option>
             <option value="cascade">Cascade (centered, top → bottom)</option>
+            <option value="spiral">Spiral (winding procession)</option>
             <option value="symmetry">Symmetry (grid, ×4)</option>
           </select>
         </div>
@@ -608,6 +694,260 @@ $$ \var{v}(\var{r})=\sqrt{\mu\!\left(\frac{2}{\var{r}}-\frac{1}{\var{a}}\right)}
       <div class="preview">
         <div class="code-display latex-display theme-paper" id="latexDisplay">
           <div class="latex-stage" id="latexStage"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Image Morph Tab -->
+  <div class="tab-content" id="tab-image-morph">
+    <div class="controls">
+      <h1>Image Morph</h1>
+
+      <div class="control-group">
+        <label>Images (in transition order)</label>
+        <div class="im-list" id="imList"></div>
+        <div class="btn-row">
+          <button class="btn" id="imAddBtn">Add Images</button>
+          <button class="btn secondary" id="imDemoBtn" title="Add a few flat silhouettes to try the morph">Demo Shapes</button>
+        </div>
+        <button class="btn secondary" id="imClearBtn">Clear All</button>
+        <input type="file" id="imFileInput" accept="image/*" multiple style="display: none;">
+        <div class="status-text">Drop images anywhere on this tab, or paste one from the clipboard.</div>
+      </div>
+
+      <div class="control-group">
+        <label title="What counts as ink: dark pixels (drawings on white), light pixels (on black), transparency (cut-outs), or edges (photos → line drawing).">Sample By</label>
+        <select id="imSampleMode">
+          <option value="dark">Dark pixels (drawing on light)</option>
+          <option value="light">Light pixels (drawing on dark)</option>
+          <option value="alpha">Opacity (transparent PNG)</option>
+          <option value="edges">Edges (photo outline)</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <label>Ink Threshold</label>
+        <div class="range-value">
+          <input type="range" id="imThreshold" min="0" max="95" value="30">
+          <span id="imThresholdValue">30%</span>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label>Options</label>
+        <div class="checkbox-group">
+          <label title="Denser particles where the ink is stronger, like a stipple. Off: every ink pixel is equally likely."><input type="checkbox" id="imWeighted" checked> Density follows tone</label>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label>Image Fit (of the frame)</label>
+        <div class="range-value">
+          <input type="range" id="imFit" min="10" max="100" value="80">
+          <span id="imFitValue">80%</span>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label>Particle Color</label>
+        <select id="imColorMode">
+          <option value="theme">Theme ink</option>
+          <option value="image">From the image (per particle)</option>
+          <option value="custom">Custom</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <label>Custom Color</label>
+        <input type="color" id="imColor" value="#ff7edb">
+      </div>
+
+      <div class="control-group">
+        <label>Theme</label>
+        <select id="imTheme">
+          <option value="paper" selected>Paper (Light)</option>
+          <option value="white">White (pure)</option>
+          <option value="midnight">Midnight</option>
+          <option value="dracula">Dracula</option>
+          <option value="monokai">Monokai</option>
+          <option value="nord">Nord</option>
+          <option value="synthwave">Synthwave</option>
+          <option value="matrix">Matrix</option>
+          <option value="solarized">Solarized Dark</option>
+          <option value="cyberpunk">Cyberpunk</option>
+          <option value="sunset">Sunset</option>
+          <option value="gruvbox-dark">Gruvbox Material Dark</option>
+          <option value="gruvbox-light">Gruvbox Material Light</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <label title="Up to 1,000,000. The live preview draws at most 50,000 of them; Record and Screenshot always use the full count.">Particle Count (live preview caps at 50k)</label>
+        <div class="range-value">
+          <input type="range" id="imPartCount" min="1000" max="1000000" step="1000" value="6000">
+          <span id="imPartCountValue">6000</span>
+        </div>
+      </div>
+      <div class="control-group">
+        <label>Particle Size</label>
+        <div class="range-value">
+          <input type="range" id="imPartSize" min="5" max="60" value="15">
+          <span id="imPartSizeValue">1.5px</span>
+        </div>
+      </div>
+      <div class="control-group">
+        <label>Glow / Softness</label>
+        <div class="range-value">
+          <input type="range" id="imPartGlow" min="0" max="100" value="40">
+          <span id="imPartGlowValue">40%</span>
+        </div>
+      </div>
+      <div class="control-group">
+        <label>Particle Blend</label>
+        <select id="imPartBlend">
+          <option value="source-over">Normal</option>
+          <option value="lighter">Additive (dark themes)</option>
+          <option value="multiply">Multiply (light themes)</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <label>Morph Time</label>
+        <div class="range-value">
+          <input type="range" id="imPartMorph" min="200" max="3000" step="50" value="900">
+          <span id="imPartMorphValue">900ms</span>
+        </div>
+      </div>
+      <div class="control-group">
+        <label>Hold Time</label>
+        <div class="range-value">
+          <input type="range" id="imPartHold" min="200" max="4000" step="50" value="1200">
+          <span id="imPartHoldValue">1200ms</span>
+        </div>
+      </div>
+      <div class="control-group">
+        <label>Cymatics — Morph (nodal streams)</label>
+        <div class="range-value">
+          <input type="range" id="imPartScatter" min="0" max="100" value="30">
+          <span id="imPartScatterValue">30</span>
+        </div>
+      </div>
+      <div class="control-group">
+        <label>Cymatics — Idle (plate hum)</label>
+        <div class="range-value">
+          <input type="range" id="imPartIdle" min="0" max="1" step="0.05" value="0.5">
+          <span id="imPartIdleValue">0.50</span>
+        </div>
+      </div>
+      <div class="control-group">
+        <label title="How gently each image breaks up and re-forms: the cymatic drive eases in from the idle hum over this fraction of the morph, and back out at the end. 0% switches instantly.">Break-up — Softness (ramp)</label>
+        <div class="range-value">
+          <input type="range" id="imPartRamp" min="0" max="100" value="60">
+          <span id="imPartRampValue">60%</span>
+        </div>
+      </div>
+      <div class="control-group">
+        <label title="How far into the morph the last particles wait before leaving. Higher spreads the departure so the image dissolves grain by grain instead of all at once.">Break-up — Stagger (spread)</label>
+        <div class="range-value">
+          <input type="range" id="imPartStagger" min="0" max="90" value="45">
+          <span id="imPartStaggerValue">45%</span>
+        </div>
+      </div>
+      <div class="control-group">
+        <label>Cymatics — Scale (wavelength)</label>
+        <div class="range-value">
+          <input type="range" id="imPartCymScale" min="40" max="400" value="150">
+          <span id="imPartCymScaleValue">150px</span>
+        </div>
+      </div>
+      <div class="control-group">
+        <label>Cymatics — Size (pattern spread)</label>
+        <div class="range-value">
+          <input type="range" id="imPartCymSize" min="20" max="500" value="120">
+          <span id="imPartCymSizeValue">120px</span>
+        </div>
+      </div>
+      <div class="control-group">
+        <label>Noise Pattern</label>
+        <select id="imPartNoise">
+          <option value="polar">Polar Chladni (spokes &amp; rings)</option>
+          <option value="plate">Square-Plate Chladni</option>
+          <option value="rings">Concentric Rings</option>
+          <option value="kaleido">Kaleidoscope Noise (folded)</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <label title="Field driving the plate hum while an image holds. 'Same as transition' reuses the transition's pattern; any other family rings its own pattern, crossfaded with the transition's through the break-up ramp.">Idle Noise Pattern (plate hum)</label>
+        <select id="imPartIdleNoise">
+          <option value="same">Same as transition</option>
+          <option value="polar">Polar Chladni (spokes &amp; rings)</option>
+          <option value="plate">Square-Plate Chladni</option>
+          <option value="rings">Concentric Rings</option>
+          <option value="kaleido">Kaleidoscope Noise (folded)</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <label>Placement</label>
+        <select id="imPartPlace">
+          <option value="center">Centered</option>
+          <option value="random">Random (fly around)</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <label>Relic Forms</label>
+        <select id="imPartRelicMode">
+          <option value="off">Off</option>
+          <option value="stop">Form &amp; hold (interlude)</option>
+          <option value="guide">Guide the morph (one sweep)</option>
+        </select>
+      </div>
+
+      <div class="control-group">
+        <label>Display Height</label>
+        <div class="range-value">
+          <input type="range" id="imDisplayHeight" min="200" max="800" value="460">
+          <span id="imDisplayHeightValue">460px</span>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <label>Render Size</label>
+        <select id="imRenderSize">
+          <option value="3840x2160">3840 × 2160 (16:9 · 4K)</option>
+          <option value="2160x2700">2160 × 2700 (4:5 · 4K)</option>
+          <option value="2160x2160">2160 × 2160 (1:1 · 4K)</option>
+        </select>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn" id="imStartBtn">Play</button>
+        <button class="btn secondary" id="imResetBtn">Reset</button>
+      </div>
+      <div class="btn-row">
+        <button class="btn secondary" id="imPauseBtn">Pause</button>
+      </div>
+      <div class="btn-row">
+        <button class="btn secondary" id="imRecordBtn" title="Record one full cycle through the images as MP4">Record</button>
+        <button class="btn secondary" id="imScreenshotBtn" title="Save the current particle frame as PNG">Screenshot</button>
+      </div>
+      <div class="record-status" id="imRecordStatus"></div>
+
+      <div class="latex-fab">
+        <button class="btn" id="imFabPlay" title="Play (same as the Play button above)">▶ Play</button>
+        <button class="btn secondary" id="imFabRecord" title="Record (same as the Record button above)">● Record</button>
+      </div>
+    </div>
+
+    <div class="preview-container">
+      <div class="preview-header">
+        <h2>Preview</h2>
+        <div class="stats">
+          <div class="im-progress" id="imProgress" style="display: none;" title="Render progress"><div></div></div>
+          <span id="imStats">0 images</span>
+        </div>
+      </div>
+      <div class="preview">
+        <div class="code-display image-morph-display theme-paper" id="imDisplay">
+          <div class="im-hint" id="imHint">Drop images here<br>or use Add Images / Demo Shapes</div>
         </div>
       </div>
     </div>

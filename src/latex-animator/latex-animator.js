@@ -1,6 +1,7 @@
 import { LatexAnimatorRecorder } from './latex-animator-recorder.js';
 import { LatexParticleEngine, sampleLinePoints } from './latex-particles.js';
 import { sampleRelicForm } from './relic-forms.js';
+import { rasterizeLines, buildGlyphSets, buildDiagramSprites, ZoomSim, CellSim } from './latex-cinema.js';
 
 const TOKEN_NODES = new Set(['mi', 'mn', 'mo', 'mtext', 'ms', 'mspace']);
 
@@ -501,7 +502,7 @@ function symbolCount(block) {
   return n;
 }
 
-function ephemerisMathBlocks({ maxLen = Infinity, splitClauses = false, maxSymbols = Infinity } = {}) {
+function ephemerisMathBlocks({ maxLen = Infinity, splitClauses = false, maxSymbols = Infinity, drop = [] } = {}) {
   const isRule = (b) => b.includes('\\rule{');
   let blocks = EPHEMERIS_RING.split('\n\n')
     .filter(b => !b.includes('\\textbf{') && !b.includes('\\textit{'));
@@ -540,7 +541,8 @@ function ephemerisMathBlocks({ maxLen = Infinity, splitClauses = false, maxSymbo
     });
   }
   blocks = blocks.filter(b => isRule(b)
-    || (b.replace(/\s+/g, '').length <= maxLen && symbolCount(b) <= maxSymbols));
+    || (b.replace(/\s+/g, '').length <= maxLen && symbolCount(b) <= maxSymbols
+        && !drop.some(key => b.includes(key))));
   const out = [];
   for (const b of blocks) {
     if (isRule(b) && (!out.length || isRule(out[out.length - 1]))) continue;
@@ -556,8 +558,15 @@ const JD_LEN = EPHEMERIS_RING.split('\n\n')
   .filter(b => b.includes('\\fn{JD}='))
   .map(b => b.replace(/\s+/g, '').length)[0] || 122;
 const EPHEMERIS_RING_SHORT = ephemerisMathBlocks({ maxLen: JD_LEN - 1, splitClauses: true });
-// Very short set: additionally capped at 8 visible symbols per line.
-const EPHEMERIS_RING_VERY_SHORT = ephemerisMathBlocks({ maxLen: JD_LEN - 1, splitClauses: true, maxSymbols: 8 });
+// Very short set: additionally capped at 8 visible symbols per line, minus
+// a few explicit evictions.
+const EPHEMERIS_RING_VERY_SHORT = ephemerisMathBlocks({
+  maxLen: JD_LEN - 1, splitClauses: true, maxSymbols: 8,
+  drop: [
+    '2451545',                    // the T = (JD − 2451545.0)/36525 fraction
+    String.raw`\var{e}^{\!*}`,    // the degree-form M = E − e* sin E
+  ],
+});
 
 const LATEX_PRESETS = {
   combination: COMBINATION_OPERATORS,
@@ -610,6 +619,22 @@ export function initLatexAnimator() {
   let floatState = null;    // live float-mode run: { layer, units, eqs, p, st, paused, raf }
   let particleState = null; // live particle-mode run: { canvas, ctx, engine, raf, last, paused }
   let particleGen = 0;      // bumping this aborts an in-flight particle sampling pass
+  let cinemaState = null;   // live zoom/cell run: { canvas, ctx, sim, raf, last, paused }
+  let cinemaGen = 0;        // bumping this aborts an in-flight sprite build
+
+  const zoomControls = document.getElementById('latexZoomControls');
+  const zoomCount = document.getElementById('latexZoomCount');
+  const zoomTravel = document.getElementById('latexZoomTravel');
+  const zoomTilt = document.getElementById('latexZoomTilt');
+  const zoomDepth = document.getElementById('latexZoomDepth');
+  const zoomPersp = document.getElementById('latexZoomPersp');
+  const zoomBlur = document.getElementById('latexZoomBlur');
+  const zoomDiagrams = document.getElementById('latexZoomDiagrams');
+  const cellControls = document.getElementById('latexCellControls');
+  const cellCount = document.getElementById('latexCellCount');
+  const cellFlow = document.getElementById('latexCellFlow');
+  const cellTilt = document.getElementById('latexCellTilt');
+  const cellBlur = document.getElementById('latexCellBlur');
 
   const particleControls = document.getElementById('latexParticleControls');
   const partCount = document.getElementById('latexPartCount');
@@ -655,7 +680,7 @@ export function initLatexAnimator() {
     const fontMode = FONT_MODES[fontSel.value] || 'font-editorial';
     const align = { left: ' align-left', right: ' align-right' }[alignSel.value] || '';
     display.className = `code-display latex-display theme-${theme} ${fontMode}${align}`
-      + ((floatState || particleState) ? ' latex-float-on' : '');
+      + ((floatState || particleState || cinemaState) ? ' latex-float-on' : '');
     if (particleState) particleState.engine.setColor(getComputedStyle(display).color);
     display.style.height = displayHeight.value + 'px';
     display.style.padding = displayPadding.value + 'px';
@@ -960,13 +985,27 @@ export function initLatexAnimator() {
     return best;
   }
 
-  // A unit is 1 element (random/cascade) or 4 mirrored elements (symmetry,
-  // each showing a different equation).
+  const SPIRAL_DTH = 0.85;   // rad between consecutive spiral slots
+  const SPIRAL_R0 = 8;       // innermost slot radius, % of half-extent
+  const SPIRAL_R1 = 44;      // outermost slot radius
+  const SPIRAL_SWIRL = 1.2;  // rad of entry swirl during fade-in
+
+  // A unit is 1 element (random/cascade/spiral) or 4 mirrored elements
+  // (symmetry, each showing a different equation).
   function floatPlace(unit, eqs, p, born, st) {
     let eq = null, positions;
+    unit.spiral = null;
     if (p.layout === 'cascade') {
       eq = eqs[st.eqIndex++ % eqs.length];
       positions = [[50, st.y0 + (st.slot++ % st.slots) * st.stepPct]];
+    } else if (p.layout === 'spiral') {
+      eq = eqs[st.eqIndex++ % eqs.length];
+      const k = st.slot++ % st.slots;
+      const ang = k * SPIRAL_DTH - Math.PI / 2; // wind outward from the top
+      const rad = SPIRAL_R0 + (SPIRAL_R1 - SPIRAL_R0) * (st.slots <= 1 ? 0 : k / (st.slots - 1));
+      unit.spiral = { ang, rad };
+      unit.spiralSettled = false;
+      positions = [[50 + rad * Math.cos(ang), 50 + rad * Math.sin(ang)]];
     } else if (p.layout === 'symmetry') {
       const x = (Math.floor(Math.random() * (FLOAT_GRID / 2)) + 0.5) / FLOAT_GRID * 100;
       const y = (Math.floor(Math.random() * (FLOAT_GRID / 2)) + 0.5) / FLOAT_GRID * 100;
@@ -997,9 +1036,10 @@ export function initLatexAnimator() {
       unit.glyphSets = null;
     }
     unit.born = born;
-    // Cascade keeps uniform lifetimes so respawn order (and the descending
-    // ladder) never scrambles; the other layouts jitter ±25%.
-    unit.life = p.layout === 'cascade' ? p.life : p.life * (0.75 + Math.random() * 0.5);
+    // Cascade/spiral keep uniform lifetimes so respawn order (the ladder /
+    // the winding) never scrambles; the other layouts jitter ±25%.
+    unit.life = (p.layout === 'cascade' || p.layout === 'spiral')
+      ? p.life : p.life * (0.75 + Math.random() * 0.5);
   }
 
   function floatFrame(now) {
@@ -1033,6 +1073,20 @@ export function initLatexAnimator() {
           el.style.opacity = op;
           el.style.transform = tf;
           el.style.zIndex = z;
+        }
+        // spiral entry: glide along the winding (angle unwinds, radius
+        // grows) over the fade-in, then settle exactly on the slot
+        if (u.spiral && !u.spiralSettled) {
+          const fi = Math.min(1, t / (p.fadeIn || FLOAT_FADE_IN));
+          const ang = u.spiral.ang - (1 - fi) * SPIRAL_SWIRL;
+          const rad = u.spiral.rad * (0.5 + 0.5 * fi);
+          const x = (50 + rad * Math.cos(ang)) + '%';
+          const y = (50 + rad * Math.sin(ang)) + '%';
+          for (const el of u.els) {
+            el.style.left = x;
+            el.style.top = y;
+          }
+          u.spiralSettled = fi >= 1;
         }
       }
     }
@@ -1231,6 +1285,102 @@ export function initLatexAnimator() {
     pauseBtn.textContent = 'Pause';
   }
 
+  // ---- Cinematic modes: Zoom (fly-through) and Cell (living symbols) ----
+  function zoomParams() {
+    return {
+      count: parseInt(zoomCount.value),
+      travelMs: Math.round(parseFloat(zoomTravel.value) * 1000), // min 0.5s
+      tiltDeg: parseInt(zoomTilt.value),
+      depth: parseFloat(zoomDepth.value),      // continuous
+      persp: parseFloat(zoomPersp.value) / 50, // 0 straight … 1 true … 2 wide
+      blur: parseInt(zoomBlur.value),
+    };
+  }
+  function cellParams() {
+    return {
+      cells: parseInt(cellCount.value),
+      flowMs: parseInt(cellFlow.value) * 1000,
+      tiltDeg: parseInt(cellTilt.value),
+      blur: parseInt(cellBlur.value),
+    };
+  }
+
+  function cinemaFontOpts() {
+    const ss = getComputedStyle(stage);
+    return {
+      fontFamily: ss.fontFamily,
+      fontSize: ss.fontSize,
+      color: getComputedStyle(display).color,
+      fontCss: recorder._fontCss,
+    };
+  }
+
+  // Build the sim for the current cinematic mode (used live and by Record).
+  async function buildCinemaSim(mode) {
+    await recorder._ensureFonts();
+    const area = { w: display.clientWidth, h: display.clientHeight };
+    if (mode === 'zoom') {
+      unitCount.textContent = 'rendering lines…';
+      const opts = cinemaFontOpts();
+      const sprites = await rasterizeLines(floatEquations(), opts);
+      updateStats();
+      if (!sprites.length) return null;
+      // labeled diagrams: rare, time-gated, edge-hugging guests handled by
+      // the sim itself (at most one spawn per few seconds)
+      const diagrams = zoomDiagrams.checked ? await buildDiagramSprites(opts) : [];
+      return new ZoomSim({ sprites, area, params: zoomParams(), diagrams });
+    }
+    unitCount.textContent = 'carving glyphs…';
+    const sets = await buildGlyphSets(
+      [...stage.querySelectorAll('mjx-container')], cinemaFontOpts());
+    updateStats();
+    if (!sets.length) return null;
+    return new CellSim({ sets, area, params: cellParams() });
+  }
+
+  async function startCinema(mode) {
+    stopAnimation();
+    const gen = ++cinemaGen;
+    const sim = await buildCinemaSim(mode);
+    if (gen !== cinemaGen || !sim) return;
+
+    const canvas = document.createElement('canvas');
+    canvas.className = 'latex-particle-canvas';
+    display.appendChild(canvas);
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = display.clientWidth * dpr;
+    canvas.height = display.clientHeight * dpr;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+
+    cinemaState = { canvas, ctx, sim, mode, raf: 0, last: performance.now(), paused: false };
+    applyStyles(); // hides the stage behind the canvas
+    const frame = (now) => {
+      if (!cinemaState) return;
+      const dt = Math.min(100, now - cinemaState.last);
+      cinemaState.last = now;
+      if (!cinemaState.paused) {
+        cinemaState.sim.step(dt);
+        const w = display.clientWidth, h = display.clientHeight;
+        cinemaState.ctx.clearRect(0, 0, w, h);
+        cinemaState.sim.draw(cinemaState.ctx, 1, 0, 0);
+      }
+      cinemaState.raf = requestAnimationFrame(frame);
+    };
+    cinemaState.raf = requestAnimationFrame(frame);
+  }
+
+  function stopCinema() {
+    cinemaGen++;
+    if (!cinemaState) return;
+    cancelAnimationFrame(cinemaState.raf);
+    cinemaState.canvas.remove();
+    cinemaState = null;
+    applyStyles();
+    isPaused = false;
+    pauseBtn.textContent = 'Pause';
+  }
+
   // ---- Stepping ----
   function stepOnce() {
     if (eventIndex >= events.length) return { done: true, delay: 0 };
@@ -1261,6 +1411,7 @@ export function initLatexAnimator() {
     if (!mathReady) return;
     if (typingEffect.value === 'float') { startFloat(); return; }
     if (typingEffect.value === 'particles') { startParticles(); return; }
+    if (typingEffect.value === 'zoom' || typingEffect.value === 'cell') { startCinema(typingEffect.value); return; }
     stopAnimation();
     resetReveal();
     isPaused = false;
@@ -1272,6 +1423,7 @@ export function initLatexAnimator() {
     if (animationId) { clearTimeout(animationId); animationId = null; }
     stopFloat();
     stopParticles();
+    stopCinema();
   }
 
   function reset() {
@@ -1282,6 +1434,11 @@ export function initLatexAnimator() {
   }
 
   function togglePause() {
+    if (cinemaState) {
+      cinemaState.paused = !cinemaState.paused;
+      pauseBtn.textContent = cinemaState.paused ? 'Resume' : 'Pause';
+      return;
+    }
     if (particleState) {
       particleState.paused = !particleState.paused;
       pauseBtn.textContent = particleState.paused ? 'Resume' : 'Pause';
@@ -1353,6 +1510,17 @@ export function initLatexAnimator() {
       latexPartLines: partLines.value,
       latexPartPlace: partPlace.value,
       latexPartRelicMode: partRelicMode.value,
+      latexZoomCount: zoomCount.value,
+      latexZoomTravel: zoomTravel.value,
+      latexZoomTilt: zoomTilt.value,
+      latexZoomDepth: zoomDepth.value,
+      latexZoomPersp: zoomPersp.value,
+      latexZoomBlur: zoomBlur.value,
+      latexZoomDiagrams: zoomDiagrams.checked,
+      latexCellCount: cellCount.value,
+      latexCellFlow: cellFlow.value,
+      latexCellTilt: cellTilt.value,
+      latexCellBlur: cellBlur.value,
       latexRenderSize: renderSize.value
     };
     const blob = new Blob([JSON.stringify(scene, null, 2)], { type: 'application/json' });
@@ -1402,6 +1570,17 @@ export function initLatexAnimator() {
       if (s.latexPartPlace !== undefined) partPlace.value = s.latexPartPlace;
       if (s.latexPartRelic !== undefined) partRelicMode.value = s.latexPartRelic ? 'stop' : 'off'; // legacy scenes
       if (s.latexPartRelicMode !== undefined) partRelicMode.value = s.latexPartRelicMode;
+      for (const [key, el, suffix] of [
+        ['latexZoomCount', zoomCount, ''], ['latexZoomTravel', zoomTravel, 's'],
+        ['latexZoomTilt', zoomTilt, '°'], ['latexZoomDepth', zoomDepth, ''],
+        ['latexZoomPersp', zoomPersp, ''],
+        ['latexZoomBlur', zoomBlur, ''],
+        ['latexCellCount', cellCount, ''], ['latexCellFlow', cellFlow, 's'],
+        ['latexCellTilt', cellTilt, '°'], ['latexCellBlur', cellBlur, ''],
+      ]) {
+        if (s[key] !== undefined) { el.value = s[key]; document.getElementById(el.id + 'Value').textContent = s[key] + suffix; }
+      }
+      if (s.latexZoomDiagrams !== undefined) zoomDiagrams.checked = s.latexZoomDiagrams;
       if (s.latexRenderSize !== undefined) renderSize.value = s.latexRenderSize;
       syncFloatControls();
       render();
@@ -1444,6 +1623,24 @@ export function initLatexAnimator() {
     stopAnimation();
     resetReveal();
     try {
+      if (typingEffect.value === 'zoom' || typingEffect.value === 'cell') {
+        const mode = typingEffect.value;
+        recordStatus.textContent = 'Preparing...';
+        const sim = await buildCinemaSim(mode);
+        if (!sim) throw new Error('Nothing to render');
+        const seconds = mode === 'zoom'
+          ? Math.min(30, (zoomParams().travelMs * 2) / 1000)
+          : Math.min(40, (sim.cycleMs() * 2) / 1000);
+        await recorder.recordSim({
+          display, sim, seconds,
+          filename: `latex-${mode}.mp4`,
+          onProgress: (p) => { recordStatus.textContent = `Recording... ${Math.round(p * 100)}%`; }
+        });
+        recordStatus.textContent = 'Done!';
+        setTimeout(() => { recordStatus.textContent = ''; }, 3000);
+        recordBtn.disabled = false;
+        return;
+      }
       if (typingEffect.value === 'particles') {
         const pp = particleParams();
         const lines = await buildParticleLines(pp.count, (i, n) => {
@@ -1617,14 +1814,41 @@ export function initLatexAnimator() {
   function syncFloatControls() {
     floatControls.style.display = typingEffect.value === 'float' ? '' : 'none';
     particleControls.style.display = typingEffect.value === 'particles' ? '' : 'none';
+    zoomControls.style.display = typingEffect.value === 'zoom' ? '' : 'none';
+    cellControls.style.display = typingEffect.value === 'cell' ? '' : 'none';
   }
   typingEffect.addEventListener('change', () => {
     syncFloatControls();
     stopFloat();
     stopParticles();
+    stopCinema();
     buildEvents();
     resetReveal();
   });
+
+  // Cinematic sliders: labels always; density/cell-count restart, the rest
+  // apply live to the running sim.
+  const cinemaSlider = (el, valueId, fmt, restart) => {
+    el.addEventListener('input', () => {
+      document.getElementById(valueId).textContent = fmt(el.value);
+      if (!cinemaState) return;
+      if (restart) startCinema(cinemaState.mode);
+      else cinemaState.sim.setParams(cinemaState.mode === 'zoom' ? zoomParams() : cellParams());
+    });
+  };
+  cinemaSlider(zoomCount, 'latexZoomCountValue', v => v, true);
+  cinemaSlider(zoomTravel, 'latexZoomTravelValue', v => v + 's', false);
+  cinemaSlider(zoomTilt, 'latexZoomTiltValue', v => v + '°', false);
+  cinemaSlider(zoomDepth, 'latexZoomDepthValue', v => parseFloat(v).toFixed(1), false);
+  cinemaSlider(zoomPersp, 'latexZoomPerspValue', v => parseFloat(v).toFixed(1), false);
+  cinemaSlider(zoomBlur, 'latexZoomBlurValue', v => v, false);
+  zoomDiagrams.addEventListener('change', () => {
+    if (cinemaState && cinemaState.mode === 'zoom') startCinema('zoom'); // sprite pool changes
+  });
+  cinemaSlider(cellCount, 'latexCellCountValue', v => v, true);
+  cinemaSlider(cellFlow, 'latexCellFlowValue', v => v + 's', false);
+  cinemaSlider(cellTilt, 'latexCellTiltValue', v => v + '°', false);
+  cinemaSlider(cellBlur, 'latexCellBlurValue', v => v, false);
 
   // Particle sliders: labels always; count restarts (pool size is fixed at
   // build), everything else applies live to the running engine.

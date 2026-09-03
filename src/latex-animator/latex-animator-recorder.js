@@ -479,10 +479,36 @@ mjx-container svg{overflow:visible;}
     await mp4.finish('latex-animation.mp4');
   }
 
+  // Generic canvas-sim recorder (zoom / cell modes): the animator hands over
+  // a ready sim exposing step(dt) and draw(ctx, scale, ox, oy) in css-px
+  // space; we drive it at 30fps scaled and centered on the encoder canvas.
+  async recordSim({ display, sim, seconds, filename, onProgress }) {
+    await this._ensureFonts();
+    this._createCanvas();
+    const mp4 = await this._startMp4();
+    const ds = getComputedStyle(display);
+    const scale = Math.min(this.width / sim.area.w, this.height / sim.area.h);
+    const ox = (this.width - sim.area.w * scale) / 2;
+    const oy = (this.height - sim.area.h * scale) / 2;
+    const frames = Math.round(seconds * 30);
+    for (let f = 0; f < frames; f++) {
+      sim.step(1000 / 30);
+      this._fillBackground(ds);
+      sim.draw(this.ctx, scale, ox, oy);
+      mp4.addFrames(1);
+      if (f % 10 === 0) {
+        if (onProgress) onProgress(f / frames);
+        await new Promise(r => setTimeout(r, 0));
+      }
+    }
+    await mp4.finish(filename);
+    if (onProgress) onProgress(1);
+  }
+
   // Particle mode: the animator hands over a ready engine (lines already
   // sampled); drive it at a fixed 30fps for one full cycle through its
   // lines, drawing scaled onto the encoder canvas.
-  async recordParticles({ display, engine, scale, onProgress }) {
+  async recordParticles({ display, engine, scale, onProgress, filename = 'latex-particles.mp4' }) {
     await this._ensureFonts();
     this._createCanvas();
     const mp4 = await this._startMp4();
@@ -490,17 +516,22 @@ mjx-container svg{overflow:visible;}
 
     const cycleMs = engine.totalCycleMs();
     const totalFrames = Math.round(cycleMs / 1000 * 30) + 15; // small tail
+    // Report every 10 frames, or every frame once frames are slow (huge
+    // particle pools), so the progress UI never looks stalled.
+    let lastYield = performance.now();
     for (let f = 0; f < totalFrames; f++) {
       engine.step(1000 / 30);
       this._fillBackground(ds);
       engine.draw(this.ctx, this.width / 2, this.height / 2, scale);
       mp4.addFrames(1);
-      if (f % 10 === 0) {
-        if (onProgress) onProgress(f / totalFrames);
+      const now = performance.now();
+      if (f % 10 === 0 || now - lastYield > 100) {
+        if (onProgress) onProgress((f + 1) / totalFrames);
         await new Promise(r => setTimeout(r, 0));
+        lastYield = performance.now();
       }
     }
-    await mp4.finish('latex-particles.mp4');
+    await mp4.finish(filename);
     if (onProgress) onProgress(1);
   }
 
@@ -631,11 +662,21 @@ mjx-container svg{overflow:visible;}
       }
       return sprites[st.bag.pop()];
     };
+    // spiral geometry mirrors the live engine (percent-of-half-extent radii)
+    const SP_DTH = 0.85, SP_R0 = 8, SP_R1 = 44, SP_SWIRL = 1.2;
     const spawn = (born, self) => {
-      let unitSprites, positions;
+      let unitSprites, positions, spiral = null;
       if (layout === 'cascade') {
         unitSprites = [sprites[st.eqIndex++ % sprites.length]];
         positions = [[W / 2, cascade.y0 + (st.slot++ % cascade.slots) * cascade.step]];
+      } else if (layout === 'spiral') {
+        unitSprites = [sprites[st.eqIndex++ % sprites.length]];
+        const k = st.slot++ % st.slots;
+        const ang = k * SP_DTH - Math.PI / 2;
+        const rad = SP_R0 + (SP_R1 - SP_R0) * (st.slots <= 1 ? 0 : k / (st.slots - 1));
+        spiral = { ang, rad };
+        positions = [[W / 2 + (rad / 100) * W * Math.cos(ang),
+                      H / 2 + (rad / 100) * H * Math.sin(ang)]];
       } else if (layout === 'symmetry') {
         const x = (Math.floor(Math.random() * (GRID / 2)) + 0.5) / GRID * W;
         const y = (Math.floor(Math.random() * (GRID / 2)) + 0.5) / GRID * H;
@@ -645,10 +686,11 @@ mjx-container svg{overflow:visible;}
         unitSprites = [sprites[Math.floor(Math.random() * sprites.length)]];
         positions = [bestSpot(st.units.filter(u => u !== self).flatMap(u => u.positions))];
       }
-      // Cascade keeps uniform lifetimes so the descending order holds.
-      return { sprites: unitSprites, positions, born,
+      // Cascade/spiral keep uniform lifetimes so their ordering holds.
+      return { sprites: unitSprites, positions, born, spiral,
                stripOrders: reveal !== 'off' ? unitSprites.map(() => stripOrder(reveal)) : null,
-               life: layout === 'cascade' ? life : life * (0.75 + Math.random() * 0.5) };
+               life: (layout === 'cascade' || layout === 'spiral')
+                 ? life : life * (0.75 + Math.random() * 0.5) };
     };
     const units = st.units; // grows during the loop, so early spawns repel later ones
     for (let i = 0; i < nUnits; i++) units.push(spawn(i * (life / nUnits)));
@@ -678,7 +720,18 @@ mjx-container svg{overflow:visible;}
 
       for (const { u, s, alpha, t } of drawable) {
         ctx.globalAlpha = alpha;
-        u.positions.forEach(([x, y], k) => {
+        // spiral entry: glide along the winding during the fade-in
+        let sx = null, sy = null;
+        if (u.spiral && t < FI) {
+          const fi = t / FI;
+          const ang = u.spiral.ang - (1 - fi) * SP_SWIRL;
+          const rad = u.spiral.rad * (0.5 + 0.5 * fi) / 100;
+          sx = W / 2 + rad * W * Math.cos(ang);
+          sy = H / 2 + rad * H * Math.sin(ang);
+        }
+        u.positions.forEach(([x0, y0], k) => {
+          const x = sx !== null ? sx : x0;
+          const y = sy !== null ? sy : y0;
           const sp = u.sprites[k];
           const dw = sp.w * pxScale * s;
           const dh = sp.h * pxScale * s;

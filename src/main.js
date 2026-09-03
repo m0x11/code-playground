@@ -2,11 +2,13 @@ import './styles/base.css';
 import './styles/tabs.css';
 import './styles/code-animator.css';
 import './styles/latex-animator.css';
+import './styles/image-morph.css';
 import './styles/scrambler.css';
 import './styles/snowflake-scramble.css';
 
 import { initCodeAnimator } from './code-animator/code-animator.js';
 import { initLatexAnimator } from './latex-animator/latex-animator.js';
+import { initImageMorph } from './image-morph/image-morph.js';
 import { initScrambler } from './scrambler/scrambler.js';
 import { initSnowflakeScramble } from './snowflake-scramble/snowflake-scramble.js';
 import { restoreAppState, initAppStatePersistence } from './persist.js';
@@ -32,6 +34,7 @@ tabBtns.forEach(btn => {
 const savedState = restoreAppState();
 initCodeAnimator();
 initLatexAnimator();
+initImageMorph();
 initScrambler();
 initSnowflakeScramble();
 initAppStatePersistence(savedState);

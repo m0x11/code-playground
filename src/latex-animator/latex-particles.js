@@ -11,12 +11,18 @@
 // All positions are css px relative to the composition center; draw() takes
 // a center and scale, so the same engine drives both the live overlay
 // canvas and the video recorder.
+//
+// Targets may optionally carry per-point colors (Uint8Array, rgb per
+// point — the Image Morph tab samples them from photos). When any line
+// does, every particle tints toward its target's color over the morph;
+// colorless targets (relic forms, plain lines) tint back to the base color.
 
 const SPRING_K = 140;                        // spring stiffness, 1/s²
 const SPRING_DAMP = 2 * Math.sqrt(SPRING_K); // critical damping, 1/s
 const CYM_KS = [4, 6, 8, 10, 12]; // even angular orders → vertical mirror kept
 const CYM_MORPH_AMP = 400;        // force scale per unit of the morph slider
 const CYM_IDLE_AMP = 120;         // force scale per unit of the idle slider
+const STAGGER_DEFAULT = 0.25;     // departure spread, fraction of the morph
 const CYM_R_MIN = 12;             // px — tames the 1/r pole at the plate center
 // per-field gain so every pattern lands in a similar force range
 const GAIN = { polar: 1, plate: 0.7, rings: 3, kaleido: 50 };
@@ -38,7 +44,7 @@ function hash2(ix, iy) {
   h = (h ^ (h >> 13)) * 1274126177;
   return ((h ^ (h >> 16)) >>> 0) / 4294967295;
 }
-function vnoise(x, y) {
+export function vnoise(x, y) {
   const ix = Math.floor(x), iy = Math.floor(y);
   const fx = x - ix, fy = y - iy;
   const u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy);
@@ -51,7 +57,13 @@ export class LatexParticleEngine {
   // params: { sizePx, glow, blend, morphMs, holdMs, scatter, idle, cymScale,
   //           cymSize, linesPer, place ('center'|'random'),
   //           relicMode ('off'|'stop'|'guide'), noise ('polar'|'plate'|
-  //           'rings'|'kaleido') }
+  //           'rings'|'kaleido'),
+  //           idleNoise (optional: a noise family for the hold's plate hum,
+  //             'same' or absent → the transition's field),
+  //           ramp (0–0.5, optional: fraction of each morph over which the
+  //             cymatic drive eases in from / back out to the idle level —
+  //             0 switches instantly), stagger (0–0.9, optional: how far
+  //             into the morph the last particle waits before leaving) }
   // forms: relic-form point sets ([] disables interludes/guides).
   // formRow: { radiusPx, rowWidthPx } for laying rows of forms.
   // area: { w, h, lineGap } — canvas size and line-stack gap, css px.
@@ -77,15 +89,24 @@ export class LatexParticleEngine {
     this.ty = new Float32Array(count);
     this.gx = new Float32Array(count); // guide waypoints (guide mode)
     this.gy = new Float32Array(count);
-    this.dj = new Float32Array(count); // per-particle stagger delay [0,0.25)
+    this.dj = new Float32Array(count); // per-particle stagger lot [0,1) × params.stagger
+    // optional per-particle color (current / morph source / morph target)
+    this.hasColors = lines.some(l => l.colors);
+    if (this.hasColors) {
+      for (const k of ['cr', 'cg', 'cb', 'sr', 'sg', 'sb', 'tr', 'tg', 'tb']) this[k] = new Float32Array(count);
+      const [r, g, b] = this._baseRgb();
+      this.cr.fill(r); this.cg.fill(g); this.cb.fill(b);
+    }
+    this._sprites = new Map(); // quantized color → dot sprite (per-color draw)
+    this._spriteGlow = -1;
     for (let i = 0; i < count; i++) {
-      this.dj[i] = Math.random() * 0.25;
+      this.dj[i] = Math.random();
       this.x[i] = (Math.random() - 0.5) * 600; // born as loose dust
       this.y[i] = (Math.random() - 0.5) * 300;
     }
     const group = this._lineGroup(0);
     this.seg = {
-      points: group.points, morphMs: params.morphMs, holdMs: params.holdMs,
+      points: group.points, colors: group.colors, morphMs: params.morphMs, holdMs: params.holdMs,
       line: 0, offset: this._placeOffset(group),
     };
     this.phase = 'morph';
@@ -96,7 +117,22 @@ export class LatexParticleEngine {
     this._dotKey = '';
   }
 
-  setParams(params) { this.p = params; }
+  setParams(params) {
+    const prevIdle = this._idleNoiseKey();
+    this.p = params;
+    if (this._idleNoiseKey() !== prevIdle) this._rollIdleMode(); // hum switches at once
+  }
+
+  // The idle (hold) field family: a separate pattern when params.idleNoise
+  // names a family other than the transition's, else the transition's own.
+  _idleNoiseKey() {
+    const n = this.p.idleNoise;
+    return n && n !== 'same' && n !== (this.p.noise || 'polar') ? n : null;
+  }
+  _rollIdleMode() {
+    const n = this._idleNoiseKey();
+    this.idleMode = n ? this._makeMode(n) : null;
+  }
   setColor(color) { this.color = color; }
 
   // Stack linesPer consecutive lines (wrapping) into one centered target.
@@ -109,16 +145,19 @@ export class LatexParticleEngine {
     let total = 0;
     chosen.forEach(l => { total += l.points.length; });
     const out = new Float32Array(total);
-    let o = 0, yTop = -totalH / 2;
+    const withColors = chosen.every(l => l.colors);
+    const colors = withColors ? new Uint8Array(total / 2 * 3) : null;
+    let o = 0, co = 0, yTop = -totalH / 2;
     for (const l of chosen) {
       const cy = yTop + l.h / 2;
       for (let i = 0; i < l.points.length; i += 2) {
         out[o++] = l.points[i];
         out[o++] = l.points[i + 1] + cy;
       }
+      if (colors) { colors.set(l.colors, co); co += l.colors.length; }
       yTop += l.h + gap;
     }
-    return { points: out, w: Math.max(...chosen.map(l => l.w)), h: totalH };
+    return { points: out, colors, w: Math.max(...chosen.map(l => l.w)), h: totalH };
   }
 
   // Random placement: a target-group offset that keeps its box on-canvas.
@@ -177,12 +216,22 @@ export class LatexParticleEngine {
     const picks = new Array(n);
     for (let i = 0; i < n; i++) picks[i] = Math.floor(Math.random() * nPts);
     picks.sort((a, b) => pts[a * 2] - pts[b * 2]);
+    const cols = this.hasColors ? seg.colors : null;
+    const base = this.hasColors ? this._baseRgb() : null;
     for (let i = 0; i < n; i++) {
       const pi = order[i], ti = picks[i];
       this.sx[pi] = this.x[pi];
       this.sy[pi] = this.y[pi];
       this.tx[pi] = pts[ti * 2] + off.x;
       this.ty[pi] = pts[ti * 2 + 1] + off.y;
+      if (base) {
+        this.sr[pi] = this.cr[pi]; this.sg[pi] = this.cg[pi]; this.sb[pi] = this.cb[pi];
+        if (cols) {
+          this.tr[pi] = cols[ti * 3]; this.tg[pi] = cols[ti * 3 + 1]; this.tb[pi] = cols[ti * 3 + 2];
+        } else {
+          this.tr[pi] = base[0]; this.tg[pi] = base[1]; this.tb[pi] = base[2];
+        }
+      }
     }
     this.guided = !!seg.guide;
     if (seg.guide) {
@@ -218,6 +267,7 @@ export class LatexParticleEngine {
       }
       const seg = {
         points: group.points,
+        colors: group.colors,
         morphMs: this.p.morphMs,
         holdMs: this.p.holdMs,
         line: next,
@@ -237,39 +287,45 @@ export class LatexParticleEngine {
     this.phaseT = 0;
   }
 
-  // Excite a fresh symmetric field for the coming segment. All patterns
-  // keep at least both mirror axes; wavelengths center on cymScale ±30%.
+  // Excite fresh symmetric fields for the coming segment: one for the
+  // transition and, if a different family is chosen, one for the hold.
   _newFieldMode() {
+    this.mode = this._makeMode(this.p.noise || 'polar');
+    this._rollIdleMode();
+  }
+
+  // Roll one randomized field of the given family. All patterns keep at
+  // least both mirror axes; wavelengths center on cymScale ±30%.
+  _makeMode(noise) {
     const base = this.p.cymScale || 150;
     const lam = () => base * (0.7 + Math.random() * 0.6);
-    const noise = this.p.noise || 'polar';
     if (noise === 'plate') {
       const nm = () => [1 + Math.floor(Math.random() * 4), 1 + Math.floor(Math.random() * 4)];
-      this.mode = { type: 'plate', nm1: nm(), nm2: nm(), a: Math.PI / lam() };
-    } else if (noise === 'rings') {
-      this.mode = { type: 'rings', q1: 2 * Math.PI / lam(), q2: 2 * Math.PI / lam() };
-    } else if (noise === 'kaleido') {
-      this.mode = {
+      return { type: 'plate', nm1: nm(), nm2: nm(), a: Math.PI / lam() };
+    }
+    if (noise === 'rings') {
+      return { type: 'rings', q1: 2 * Math.PI / lam(), q2: 2 * Math.PI / lam() };
+    }
+    if (noise === 'kaleido') {
+      return {
         type: 'kaleido',
         k: CYM_KS[Math.floor(Math.random() * CYM_KS.length)],
         lam: lam(),
         seed: Math.random() * 100,
       };
-    } else {
-      const pick = () => ({
-        k: CYM_KS[Math.floor(Math.random() * CYM_KS.length)],
-        q: 2 * Math.PI / lam(),
-      });
-      this.mode = { type: 'polar', a: pick(), b: pick() };
     }
+    const pick = () => ({
+      k: CYM_KS[Math.floor(Math.random() * CYM_KS.length)],
+      q: 2 * Math.PI / lam(),
+    });
+    return { type: 'polar', a: pick(), b: pick() };
   }
 
-  // Symmetric field force at (px,py). s crossfades paired sub-modes.
-  // Chladni-style fields use the sand force F = −∇(Φ²); the kaleidoscope
-  // uses the curl of wedge-folded value noise (divergence-free flow with
-  // full dihedral symmetry).
-  _fieldForce(px, py, s, out) {
-    const m = this.mode;
+  // Symmetric field force of mode m at (px,py). s crossfades paired
+  // sub-modes. Chladni-style fields use the sand force F = −∇(Φ²); the
+  // kaleidoscope uses the curl of wedge-folded value noise (divergence-free
+  // flow with full dihedral symmetry).
+  _fieldForce(m, px, py, s, out) {
     if (m.type === 'plate') {
       const a = m.a, [n1, m1] = m.nm1, [n2, m2] = m.nm2;
       const phi1 = Math.cos(n1 * a * px) * Math.cos(m1 * a * py)
@@ -350,7 +406,31 @@ export class LatexParticleEngine {
 
     const morphing = this.phase === 'morph';
     const t = morphing ? Math.min(1, this.phaseT / this.seg.morphMs) : 1;
-    const ampC = morphing ? this.p.scatter * CYM_MORPH_AMP : this.p.idle * CYM_IDLE_AMP;
+    // Cymatic drive: idle hum while holding; during a morph it eases from
+    // the idle level up to the morph level and back (smoothstep over the
+    // ramp fraction at each end) so the break-up and landing aren't jolts.
+    // With a separate idle field, the two patterns crossfade through the
+    // ramp instead (idle weight fades out as the transition's fades in).
+    const idleAmp = this.p.idle * CYM_IDLE_AMP;
+    let env = 0;
+    if (morphing) {
+      const ramp = Math.min(0.5, Math.max(0, this.p.ramp || 0));
+      env = 1;
+      if (ramp > 0) {
+        const u = Math.min(1, t / ramp, (1 - t) / ramp);
+        env = u * u * (3 - 2 * u);
+      }
+    }
+    const morphAmp = this.p.scatter * CYM_MORPH_AMP;
+    let wMorph, wIdle; // force weights on this.mode / this.idleMode
+    if (this.idleMode) {
+      wMorph = morphAmp * env;
+      wIdle = idleAmp * (1 - env);
+    } else {
+      wMorph = idleAmp + (morphAmp - idleAmp) * env;
+      wIdle = 0;
+    }
+    const stag = Math.min(0.9, Math.max(0, this.p.stagger ?? STAGGER_DEFAULT));
     const s = 0.5 + 0.5 * Math.sin(this.time * 0.7); // sub-mode crossfade
     const force = { x: 0, y: 0 };
 
@@ -359,8 +439,14 @@ export class LatexParticleEngine {
       // held target
       let ax, ay;
       if (morphing) {
-        const te = Math.max(0, Math.min(1, (t - this.dj[i]) / (1 - this.dj[i])));
+        const d = this.dj[i] * stag;
+        const te = Math.max(0, Math.min(1, (t - d) / (1 - d)));
         const e = te < 0.5 ? 4 * te ** 3 : 1 - Math.pow(-2 * te + 2, 3) / 2;
+        if (this.hasColors) {
+          this.cr[i] = this.sr[i] + (this.tr[i] - this.sr[i]) * e;
+          this.cg[i] = this.sg[i] + (this.tg[i] - this.sg[i]) * e;
+          this.cb[i] = this.sb[i] + (this.tb[i] - this.sb[i]) * e;
+        }
         if (this.guided) {
           if (e < 0.5) {
             const u = e * 2;
@@ -381,10 +467,15 @@ export class LatexParticleEngine {
       }
 
       let fx = 0, fy = 0;
-      if (ampC > 0) {
-        this._fieldForce(this.x[i], this.y[i], s, force);
-        fx = force.x * ampC;
-        fy = force.y * ampC;
+      if (wMorph > 0) {
+        this._fieldForce(this.mode, this.x[i], this.y[i], s, force);
+        fx += force.x * wMorph;
+        fy += force.y * wMorph;
+      }
+      if (wIdle > 0) {
+        this._fieldForce(this.idleMode, this.x[i], this.y[i], s, force);
+        fx += force.x * wIdle;
+        fy += force.y * wIdle;
       }
 
       // damped-spring kinematics toward the attractor
@@ -402,35 +493,74 @@ export class LatexParticleEngine {
     }
   }
 
+  // Resolve this.color (any css color) to [r, g, b] via canvas normalization.
+  _baseRgb() {
+    if (this._baseKey === this.color) return this._base;
+    const g = document.createElement('canvas').getContext('2d');
+    g.fillStyle = this.color;
+    const fs = g.fillStyle; // normalized: '#rrggbb' when opaque, else 'rgba(r, g, b, a)'
+    const hex = /^#([0-9a-f]{6})$/i.exec(fs);
+    this._base = hex
+      ? [0, 2, 4].map(i => parseInt(hex[1].slice(i, i + 2), 16))
+      : (fs.match(/[\d.]+/g) || ['0', '0', '0']).slice(0, 3).map(Number);
+    this._baseKey = this.color;
+    return this._base;
+  }
+
   // Soft dot sprite: solid core whose fraction shrinks as glow rises, then a
-  // radial falloff. Rebuilt only when glow/color change.
-  _dotSprite() {
-    const key = `${this.p.glow}|${this.color}`;
-    if (this._dot && this._dotKey === key) return this._dot;
-    const D = 64;
+  // radial falloff. Any css color; D is the sprite raster size.
+  _makeSprite(color, D) {
     const c = document.createElement('canvas');
     c.width = D;
     c.height = D;
     const g = c.getContext('2d');
     const grad = g.createRadialGradient(D / 2, D / 2, 0, D / 2, D / 2, D / 2);
     const core = Math.max(0.05, 1 - this.p.glow);
-    grad.addColorStop(0, this.color);
-    grad.addColorStop(core, this.color);
-    grad.addColorStop(1, withAlpha(this.color, 0));
+    grad.addColorStop(0, color);
+    grad.addColorStop(core, color);
+    grad.addColorStop(1, withAlpha(color, 0));
     g.fillStyle = grad;
     g.fillRect(0, 0, D, D);
-    this._dot = c;
-    this._dotKey = key;
     return c;
   }
 
+  // Single-color sprite for the base color. Rebuilt only when glow/color change.
+  _dotSprite() {
+    const key = `${this.p.glow}|${this.color}`;
+    if (this._dot && this._dotKey === key) return this._dot;
+    this._dot = this._makeSprite(this.color, 64);
+    this._dotKey = key;
+    return this._dot;
+  }
+
+  // Per-color sprites, quantized to 4 bits per channel and cached (at most
+  // 4096 small rasters; the cache resets whenever glow changes).
+  _colorSprite(r, g, b) {
+    if (this._spriteGlow !== this.p.glow) { this._sprites.clear(); this._spriteGlow = this.p.glow; }
+    const qr = (r >> 4) & 15, qg = (g >> 4) & 15, qb = (b >> 4) & 15;
+    const key = (qr << 8) | (qg << 4) | qb;
+    let sp = this._sprites.get(key);
+    if (!sp) {
+      sp = this._makeSprite(`rgb(${qr * 17}, ${qg * 17}, ${qb * 17})`, 32);
+      this._sprites.set(key, sp);
+    }
+    return sp;
+  }
+
   draw(ctx, cx, cy, scale = 1) {
-    const dot = this._dotSprite();
     // radius headroom so the glow halo isn't clipped by the sprite edge
     const r = this.p.sizePx * (1 + this.p.glow * 2) * scale;
     ctx.globalCompositeOperation = this.p.blend;
-    for (let i = 0; i < this.count; i++) {
-      ctx.drawImage(dot, cx + this.x[i] * scale - r, cy + this.y[i] * scale - r, r * 2, r * 2);
+    if (this.hasColors) {
+      for (let i = 0; i < this.count; i++) {
+        const dot = this._colorSprite(this.cr[i], this.cg[i], this.cb[i]);
+        ctx.drawImage(dot, cx + this.x[i] * scale - r, cy + this.y[i] * scale - r, r * 2, r * 2);
+      }
+    } else {
+      const dot = this._dotSprite();
+      for (let i = 0; i < this.count; i++) {
+        ctx.drawImage(dot, cx + this.x[i] * scale - r, cy + this.y[i] * scale - r, r * 2, r * 2);
+      }
     }
     ctx.globalCompositeOperation = 'source-over';
   }

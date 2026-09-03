@@ -1,0 +1,89 @@
+/* Image Morph — the particle transition applied to arbitrary images.
+   Reuses .code-display + .theme-* for the framed preview and the LaTeX
+   tab's overlay canvas / floating action button styles. */
+
+.image-morph-display {
+  align-items: center;
+  justify-content: center;
+}
+
+.image-morph-display.im-dragover {
+  outline: 2px dashed currentColor;
+  outline-offset: -10px;
+}
+
+.im-hint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px;
+  font-size: 14px;
+  line-height: 1.6;
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+/* Render progress bar, in the preview header so it's visible however far
+   the control sidebar is scrolled. */
+.im-progress {
+  width: 160px;
+  height: 6px;
+  align-self: center;
+  background: var(--border);
+  overflow: hidden;
+}
+.im-progress > div {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.15s linear;
+}
+
+.im-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.im-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+.im-item img {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  background: repeating-conic-gradient(#2a2a2a 0% 25%, #1a1a1a 0% 50%) 0 0 / 10px 10px;
+  flex: none;
+}
+
+.im-item .im-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.im-item button {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  background: #333;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+}
+.im-item button:hover { background: #444; }
+.im-item button:disabled { opacity: 0.35; cursor: default; }
